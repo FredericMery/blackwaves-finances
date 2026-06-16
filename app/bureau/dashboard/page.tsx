@@ -45,6 +45,10 @@ function formatDateFr(value: string | null | undefined): string {
   return d.toLocaleDateString("fr-FR");
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Une erreur inattendue s'est produite.";
+}
+
 export default function BureauClubDashboardPage() {
   const [budgetLignes, setBudgetLignes] = useState<BudgetLigne[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,9 +77,9 @@ export default function BureauClubDashboardPage() {
         }
 
         setBudgetLignes((data as BudgetLigne[]) ?? []);
-      } catch (e: any) {
-        console.error("Erreur inattendue dashboard:", e);
-        setError("Une erreur inattendue s'est produite.");
+      } catch (error: unknown) {
+        console.error("Erreur inattendue dashboard:", error);
+        setError(errorMessage(error));
       } finally {
         setLoading(false);
       }
@@ -203,7 +207,7 @@ export default function BureauClubDashboardPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9fc_46%,#eef4f7_100%)] text-slate-900">
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* En-tête + navigation */}
         <div className="flex items-center justify-between mb-8">
@@ -214,26 +218,32 @@ export default function BureauClubDashboardPage() {
             <h1 className="mt-2 text-3xl md:text-4xl font-bold">
               Tableau de bord du club
             </h1>
-            <p className="mt-2 text-sm md:text-base text-slate-300">
+            <p className="mt-2 text-sm md:text-base text-slate-600">
               Visualisez d&apos;un coup d&apos;œil la santé financière du club et
               le détail des mouvements par saison et par catégorie.
             </p>
           </div>
 
-          <div className="hidden md:flex flex-col items-end gap-2 text-xs text-slate-400">
+          <div className="hidden md:flex flex-col items-end gap-2 text-xs text-slate-500">
             <span className="uppercase tracking-[0.2em] text-slate-500">
               Raccourcis
             </span>
             <div className="flex gap-2">
               <Link
                 href="/bureau"
-                className="rounded-full border border-slate-600 bg-slate-800/50 px-3 py-1 text-xs hover:bg-slate-700 transition"
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 transition"
               >
                 ⬅️ Espace bureau
               </Link>
               <Link
+                href="/bureau/gerer-asso-2"
+                className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs text-violet-800 hover:bg-violet-100 transition"
+              >
+                Gérer asso 2
+              </Link>
+              <Link
                 href="/bureau/budget"
-                className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-1 text-xs hover:bg-emerald-500/20 transition"
+                className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-800 hover:bg-emerald-100 transition"
               >
                 💰 Gestion détaillée du budget
               </Link>
@@ -242,9 +252,9 @@ export default function BureauClubDashboardPage() {
         </div>
 
         {/* Barre de filtres */}
-        <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 backdrop-blur">
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2 text-sm text-slate-300">
+            <div className="flex items-center gap-2 text-sm text-slate-700">
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/10 text-xs text-emerald-400 border border-emerald-500/40">
                 ●
               </span>
@@ -252,11 +262,11 @@ export default function BureauClubDashboardPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-slate-400">Saison</span>
+                <span className="text-slate-500">Saison</span>
                 <select
                   value={selectedSaison}
                   onChange={(e) => setSelectedSaison(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-pink-500/70"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-pink-300"
                 >
                   <option value="all">Toutes les saisons</option>
                   {saisonsDisponibles.map((saison) => (
@@ -268,11 +278,11 @@ export default function BureauClubDashboardPage() {
               </div>
 
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-slate-400">Catégorie</span>
+                <span className="text-slate-500">Catégorie</span>
                 <select
                   value={selectedCategorie}
                   onChange={(e) => setSelectedCategorie(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-pink-500/70"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-pink-300"
                 >
                   <option value="all">Toutes les catégories</option>
                   {categoriesDisponibles.map((cat) => (
@@ -288,7 +298,7 @@ export default function BureauClubDashboardPage() {
 
         {/* Messages d'état */}
         {loading && (
-          <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+          <div className="mb-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
             Chargement des données…
           </div>
         )}
@@ -301,32 +311,32 @@ export default function BureauClubDashboardPage() {
 
         {/* KPIs principaux */}
         <div className="mb-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-500/15 via-slate-900 to-slate-950 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">
+          <div className="rounded-2xl border border-emerald-200 bg-white px-4 py-4 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.25em] text-emerald-700/80">
               Recettes
             </p>
             <p className="mt-2 text-2xl font-semibold">
               {formatCurrency(totalRecettes)}
             </p>
-            <p className="mt-1 text-xs text-emerald-200/80">
+            <p className="mt-1 text-xs text-emerald-700/70">
               Toutes sources de revenus confondues
             </p>
           </div>
 
-          <div className="rounded-2xl border border-sky-500/40 bg-gradient-to-br from-sky-500/15 via-slate-900 to-slate-950 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.25em] text-sky-300/80">
+          <div className="rounded-2xl border border-sky-200 bg-white px-4 py-4 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.25em] text-sky-700/80">
               Dépenses
             </p>
             <p className="mt-2 text-2xl font-semibold">
               {formatCurrency(totalDepenses)}
             </p>
-            <p className="mt-1 text-xs text-sky-200/80">
+            <p className="mt-1 text-xs text-sky-700/70">
               Uniformes, déplacements, engagements, matériel…
             </p>
           </div>
 
-          <div className="rounded-2xl border border-pink-500/40 bg-gradient-to-br from-pink-500/15 via-slate-900 to-slate-950 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.25em] text-pink-300/80">
+          <div className="rounded-2xl border border-pink-200 bg-white px-4 py-4 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.25em] text-pink-700/80">
               Solde net
             </p>
             <p
@@ -336,7 +346,7 @@ export default function BureauClubDashboardPage() {
             >
               {formatCurrency(solde)}
             </p>
-            <p className="mt-1 text-xs text-pink-200/80">
+            <p className="mt-1 text-xs text-pink-700/70">
               Sur la période et les filtres sélectionnés
             </p>
           </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useEffect, useMemo, useState, FormEvent, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -25,13 +26,13 @@ type BudgetLigne = {
   created_at?: string;
 };
 
-type PrevisionnelLigne = {
+type PrevisionnelRow = {
   id: string | number;
   saison: string;
   type: BudgetType;
   categorie: string;
   designation: string;
-  montant_prevu: number;
+  montant_prevu: number | string | null;
 };
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
@@ -240,7 +241,7 @@ export default function BudgetPage() {
       }
 
       setPrevisionnelAll(
-        (data || []).map((row: any) => ({
+        (data || []).map((row: PrevisionnelRow) => ({
           id: row.id,
           saison: row.saison,
           type: row.type as BudgetType,
@@ -267,8 +268,6 @@ export default function BudgetPage() {
   const [commentaire, setCommentaire] = useState<string>('');
   const [factureFile, setFactureFile] = useState<File | null>(null);
 
-  // Lignes de budget prévisionnel disponibles (filtrées sur saison sélectionnée)
-  const [previsionnelLignes, setPrevisionnelLignes] = useState<PrevisionnelLigne[]>([]);
   const [selectedPrevId, setSelectedPrevId] = useState<string>('');
 
   // Données & filtres
@@ -355,39 +354,9 @@ export default function BudgetPage() {
     load();
   }, []);
 
-  // Chargement des lignes de prévisionnel pour la saison choisie
   useEffect(() => {
-    const loadPrev = async () => {
-      const { data, error } = await supabase
-        .from('budget_previsionnel')
-        .select('*')
-        .eq('saison', saison)
-        .order('categorie', { ascending: true });
-
-      if (error) {
-        console.error('Erreur chargement budget_previsionnel', error);
-        setPrevisionnelLignes([]);
-        return;
-      }
-
-      setPrevisionnelLignes(
-        (data || []).map((row: any) => ({
-          id: row.id,
-          saison: row.saison,
-          type: row.type as BudgetType,
-          categorie: row.categorie,
-          designation: row.designation,
-          montant_prevu: Number(row.montant_prevu || 0),
-        }))
-      );
-    };
-
-    loadPrev();
     setSelectedPrevId('');
   }, [saison]);
-
-  // Lignes de prévisionnel filtrées pour le formulaire (saison + type)
-  const previsionnelPourFormulaire = useMemo(() => previsionnelLignes.filter((l) => l.type === type), [previsionnelLignes, type]);
 
   // Quand on change de type, on réinitialise la sélection prévisionnelle
   useEffect(() => {
@@ -465,16 +434,6 @@ export default function BudgetPage() {
     setSelectedPrevId('');
   };
 
-  // Sélection d'une ligne de prévisionnel → remplissage catégorie + libellé (inchangé)
-  const handleSelectPrevisionnel = (idStr: string) => {
-    setSelectedPrevId(idStr);
-    const ligne = previsionnelPourFormulaire.find((l) => String(l.id) === idStr);
-    if (ligne) {
-      setCategorie(ligne.categorie || '');
-      setLibelle(ligne.designation || '');
-    }
-  };
-
   // Soumission formulaire (inchangé)
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -550,7 +509,7 @@ export default function BudgetPage() {
 
       // UX: bascule automatiquement sur Mouvements après succès + ouvre la popup d’édition facture
       setActiveTab('moves');
-      setSelectedLigneId((inserted as any)?.id ?? null);
+      setSelectedLigneId(inserted?.id ?? null);
       setOpenEditModal(true);
     } catch (err) {
       console.error('Erreur inattendue formulaire budget', err);
@@ -637,7 +596,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
       commentaire: ligne.commentaire ?? null,
       facture_url: ligne.facture_url ?? null,
       previsionnel_id: ligne.previsionnel_id ?? null,
-      created_at: (ligne as any).created_at ?? null, // si présent
+      created_at: ligne.created_at ?? null,
       deleted_at: new Date().toISOString(),
       deleted_by: null, // optionnel (si tu veux le user id plus tard)
       deleted_reason: 'suppression_ui',
@@ -858,27 +817,33 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
   }, [categorie]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9fc_46%,#eef4f7_100%)] text-slate-900">
       <div className="mx-auto max-w-7xl px-4 pb-16 pt-10">
         {/* Header */}
-        <header className="mb-8 flex flex-col gap-3 border-b border-white/5 pb-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-pink-400">Espace bureau • finances</div>
+        <header className="mb-8 flex flex-col gap-3 border-b border-slate-200 pb-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-pink-600">Espace bureau • finances</div>
 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-white md:text-4xl">Gestion du budget</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-300">
+              <h1 className="text-3xl font-bold text-slate-950 md:text-4xl">Gestion du budget</h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">
                 Saisie guidée via budget prévisionnel + consultation avancée. Clique un mouvement pour gérer la facture.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Link
+                href="/bureau/gerer-asso-2"
+                className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100"
+              >
+                Gérer asso 2
+              </Link>
               <button
                 type="button"
                 onClick={() => setActiveTab('new')}
                 className={[
                   'rounded-full px-4 py-2 text-xs font-semibold transition',
-                  activeTab === 'new' ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/30' : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60',
+                  activeTab === 'new' ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/20' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                 ].join(' ')}
               >
                 + Saisie
@@ -889,14 +854,14 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 onClick={() => setActiveTab('moves')}
                 className={[
                   'rounded-full px-4 py-2 text-xs font-semibold transition',
-                  activeTab === 'moves' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60',
+                  activeTab === 'moves' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                 ].join(' ')}
               >
                 Mouvements
               </button>
 
               {activeTab === 'moves' && (
-                <button type="button" onClick={resetFilters} className="rounded-full bg-slate-800/60 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700/60">
+                <button type="button" onClick={resetFilters} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                   Reset filtres
                 </button>
               )}
@@ -906,28 +871,28 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
         {/* KPI cards */}
         <section className="mb-6 grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-900/40 via-emerald-900/10 to-slate-950/80 p-4 shadow-lg shadow-emerald-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-emerald-300">Solde (filtré)</div>
+          <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Solde (filtré)</div>
             <div className="mt-2 text-2xl font-semibold">{formatCurrency(solde)}</div>
-            <p className="mt-1 text-xs text-emerald-100/80">Basé sur les filtres actifs.</p>
+            <p className="mt-1 text-xs text-emerald-700/70">Basé sur les filtres actifs.</p>
           </div>
 
-          <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-900/40 via-sky-900/10 to-slate-950/80 p-4 shadow-lg shadow-sky-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-sky-300">Recettes</div>
+          <div className="rounded-2xl border border-sky-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-medium uppercase tracking-wide text-sky-700">Recettes</div>
             <div className="mt-2 text-xl font-semibold">{formatCurrency(totalRecettes)}</div>
-            <p className="mt-1 text-xs text-sky-100/80">Somme des recettes filtrées.</p>
+            <p className="mt-1 text-xs text-sky-700/70">Somme des recettes filtrées.</p>
           </div>
 
-          <div className="rounded-2xl border border-rose-500/30 bg-gradient-to-br from-rose-900/40 via-rose-900/10 to-slate-950/80 p-4 shadow-lg shadow-rose-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-rose-300">Dépenses</div>
+          <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-medium uppercase tracking-wide text-rose-700">Dépenses</div>
             <div className="mt-2 text-xl font-semibold">{formatCurrency(totalDepenses)}</div>
-            <p className="mt-1 text-xs text-rose-100/80">Somme des dépenses filtrées.</p>
+            <p className="mt-1 text-xs text-rose-700/70">Somme des dépenses filtrées.</p>
           </div>
 
-          <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-900/40 via-amber-900/10 to-slate-950/80 p-4 shadow-lg shadow-amber-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-amber-300">Factures manquantes</div>
+          <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-medium uppercase tracking-wide text-amber-700">Factures manquantes</div>
             <div className="mt-2 text-xl font-semibold">{missingInvoicesCount}</div>
-            <p className="mt-1 text-xs text-amber-100/80">Dans la vue filtrée.</p>
+            <p className="mt-1 text-xs text-amber-700/70">Dans la vue filtrée.</p>
           </div>
         </section>
 

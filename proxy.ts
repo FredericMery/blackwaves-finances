@@ -44,7 +44,7 @@ export function proxy(req: NextRequest) {
     }
 
     if (!isAllowedFinanceRoute(pathname)) {
-      return NextResponse.redirect(new URL("/bureau/dashboard", req.url));
+      return NextResponse.redirect(new URL("/bureau", req.url));
     }
 
     return NextResponse.next();
