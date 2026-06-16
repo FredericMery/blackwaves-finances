@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 
 export async function POST(request: Request) {
   try {
@@ -30,12 +29,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // → Écriture du cookie
+    // → Écriture des cookies de session attendus par le proxy
     const response = NextResponse.json({ success: true, role });
+
+    response.cookies.set("bw_adherent_auth", "1", {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+    });
 
     response.cookies.set("bw_role", role, {
       path: "/",
-      httpOnly: false,  // autorise le layout à lire
+      httpOnly: false,
       sameSite: "lax",
     });
 

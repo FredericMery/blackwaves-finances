@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -27,9 +28,7 @@ export default function PublicSiteHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileHeaderRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [pathname]);
+  const hideHeader = pathname === "/" || pathname?.startsWith("/bureau") || pathname === "/login";
 
   useEffect(() => {
     if (!mobileMenuOpen) {
@@ -62,8 +61,8 @@ export default function PublicSiteHeader() {
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : Boolean(pathname?.startsWith(href));
 
-  // Masquer sur la home — elle a son propre header intégré
-  if (pathname === "/") return null;
+  // Masquer sur la home et l'espace bureau, qui ont leur propre shell.
+  if (hideHeader) return null;
 
   return (
     <header
@@ -76,9 +75,11 @@ export default function PublicSiteHeader() {
             href="/"
             className="flex min-w-0 items-center gap-2.5 transition hover:opacity-80"
           >
-            <img
+            <Image
               src="/blackwaves-logo.png"
               alt="Black Waves Logo"
+              width={32}
+              height={32}
               className="h-8 w-auto shrink-0 rounded-full ring-1 ring-slate-200"
             />
             <div className="min-w-0">
