@@ -26,6 +26,15 @@ type BudgetLigne = {
   created_at?: string;
 };
 
+type PrevisionnelLigne = {
+  id: string | number;
+  saison: string;
+  type: BudgetType;
+  categorie: string;
+  designation: string;
+  montant_prevu: number;
+};
+
 type PrevisionnelRow = {
   id: string | number;
   saison: string;
