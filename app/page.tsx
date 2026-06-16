@@ -9,7 +9,7 @@ export default function Home() {
         au module de gestion.
       </p>
       <Link
-        href="/bureau/gerer-asso-2"
+        href="/bureau/login"
         className="rounded-md bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
       >
         Ouvrir l&apos;espace finance
