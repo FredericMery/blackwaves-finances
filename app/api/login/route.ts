@@ -1,35 +1,42 @@
 import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const email = body.email;
-    const password = body.password;
+    const authHeader = request.headers.get("authorization") || "";
+    const accessToken = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
 
-    // Récupérer crédentials depuis .env
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const adminPassword = process.env.ADMIN_PASSWORD;
-
-    const parentEmail = process.env.PARENT_EMAIL;
-    const parentPassword = process.env.PARENT_PASSWORD;
-
-    const coachEmail = process.env.COACH_EMAIL;
-    const coachPassword = process.env.COACH_PASSWORD;
-
-    let role: string | null = null;
-
-    if (email === adminEmail && password === adminPassword) role = "bureau";
-    if (email === coachEmail && password === coachPassword) role = "coach";
-    if (email === parentEmail && password === parentPassword) role = "parent";
-
-    if (!role) {
-      return NextResponse.json(
-        { success: false, message: "Identifiants incorrects." },
-        { status: 401 }
-      );
+    if (!accessToken) {
+      return NextResponse.json({ success: false, message: "Session manquante." }, { status: 401 });
     }
 
-    // → Écriture des cookies de session attendus par le proxy
+    const supabase = supabaseAdmin();
+
+    const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
+    if (userError || !userData?.user) {
+      return NextResponse.json({ success: false, message: "Session Supabase invalide." }, { status: 401 });
+    }
+
+    const user = userData.user;
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError) {
+      return NextResponse.json({ success: false, message: "Profil introuvable." }, { status: 403 });
+    }
+
+    const role = String(profile?.role || "").toLowerCase();
+
+    if (role !== "bureau") {
+      return NextResponse.json({ success: false, message: "Accès réservé au bureau." }, { status: 403 });
+    }
+
     const response = NextResponse.json({ success: true, role });
 
     response.cookies.set("bw_adherent_auth", "1", {

@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -16,12 +17,28 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) {
+        setError(signInError.message || 'Identifiants incorrects.');
+        return;
+      }
+
+      const accessToken = data.session?.access_token;
+
+      if (!accessToken) {
+        setError('Session Supabase introuvable après connexion.');
+        return;
+      }
+
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ email, password }),
       });
 
       const result = await response.json().catch(() => null);
