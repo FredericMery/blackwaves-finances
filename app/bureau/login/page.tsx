@@ -63,25 +63,25 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.24),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.18),_transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#020617_100%)] px-4 py-12 text-slate-50 sm:px-6 lg:px-8">
+    <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.24),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.18),_transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_48%,#020617_100%)] px-3 py-4 text-slate-50 sm:px-6 sm:py-8 lg:px-8 lg:py-12">
       <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.04)_0%,transparent_22%,transparent_78%,rgba(255,255,255,0.03)_100%)]" />
-      <div className="relative mx-auto grid min-h-[calc(100vh-6rem)] w-full max-w-6xl items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.34em] text-cyan-100">
+      <div className="relative mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-6xl items-start gap-5 py-2 lg:min-h-[calc(100vh-6rem)] lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-8 lg:py-0">
+        <section className="space-y-4 lg:space-y-6 lg:pr-8">
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.34em] text-cyan-100 sm:px-4 sm:py-2 sm:text-[11px]">
             Espace budget
           </div>
 
-          <div className="max-w-2xl space-y-4">
-            <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+          <div className="max-w-2xl space-y-3 sm:space-y-4">
+            <h1 className="text-3xl font-semibold tracking-tight text-white leading-[1.06] sm:text-4xl lg:text-5xl">
               Connexion bureau, pensée pour le pilotage financier.
             </h1>
-            <p className="max-w-xl text-base leading-7 text-slate-300 sm:text-lg">
+            <p className="max-w-xl text-sm leading-6 text-slate-300 sm:text-base sm:leading-7">
               Accède au tableau de bord budget, au prévisionnel et au suivi des
               lignes comptables dans une interface claire, sobre et orientée action.
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
             {[
               'Synthèse budgétaire en premier',
               'Suivi des recettes et dépenses',
@@ -89,7 +89,7 @@ export default function LoginPage() {
             ].map((item) => (
               <div
                 key={item}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200 shadow-[0_12px_40px_rgba(2,6,23,0.35)] backdrop-blur"
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 shadow-[0_12px_40px_rgba(2,6,23,0.35)] backdrop-blur sm:py-4"
               >
                 {item}
               </div>
@@ -97,12 +97,12 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-white/10 bg-slate-950/75 p-5 shadow-[0_30px_100px_rgba(2,6,23,0.55)] backdrop-blur-xl sm:p-8">
-          <div className="mb-6">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-cyan-300/80">
+        <section className="rounded-[28px] border border-white/10 bg-slate-950/78 p-4 shadow-[0_30px_100px_rgba(2,6,23,0.55)] backdrop-blur-xl sm:p-6 lg:p-8">
+          <div className="mb-5 sm:mb-6">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-cyan-300/80 sm:text-[11px]">
               Connexion sécurisée
             </p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">
+            <h2 className="mt-2 text-[1.6rem] font-semibold leading-tight text-white sm:text-2xl">
               Ouvrir le module de gestion
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
@@ -111,7 +111,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
             {error && (
               <div className="rounded-2xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                 {error}
@@ -153,7 +153,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-emerald-400 disabled:cursor-not-allowed disabled:opacity-60 sm:py-3.5"
             >
               {loading ? 'Ouverture du bureau…' : 'Se connecter'}
             </button>
