@@ -148,6 +148,18 @@ function hasInvoice(payment: Payment) {
   return payment.has_invoice ?? Boolean(payment.invoice_url || payment.invoice_name);
 }
 
+function withSignedAttachments(current: BudgetLine, signed: BudgetLine | null): BudgetLine {
+  if (signed?.id !== current.id) return current;
+  const invoices = new Map(signed.payments.map((payment) => [payment.id, payment.invoice_url]));
+  const documents = new Map(signed.documents.map((document) => [document.id, document.file_url]));
+  // A signed response only decorates URLs; refreshed financial data stays authoritative.
+  return {
+    ...current,
+    payments: current.payments.map((payment) => ({ ...payment, invoice_url: invoices.get(payment.id) || payment.invoice_url })),
+    documents: current.documents.map((document) => ({ ...document, file_url: documents.get(document.id) || document.file_url })),
+  };
+}
+
 function plannedRatio(paid: number, planned: number) {
   return planned === 0 ? "Non défini (prévu nul)" : `${((paid / planned) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`;
 }
@@ -367,7 +379,7 @@ export default function GererAsso2Page() {
 
   const detailLine = useMemo(() => {
     const current = lines.find((line) => line.id === detailLineId) || null;
-    return current && signedDetail?.id === current.id ? signedDetail : current;
+    return current ? withSignedAttachments(current, signedDetail) : null;
   }, [detailLineId, lines, signedDetail]);
   const editLine = useMemo(() => lines.find((line) => line.id === editLineId) || null, [editLineId, lines]);
   const paymentLine = useMemo(() => lines.find((line) => line.id === paymentLineId) || null, [paymentLineId, lines]);
@@ -389,6 +401,7 @@ export default function GererAsso2Page() {
       if (sequence !== requestSequence.current) return;
 
       setSeasons(json.seasons || []);
+      setSignedDetail(null);
       setLines(json.lines || []);
       setDashboard(json.dashboard || defaultDashboard);
       setSelectedSeason(json.selectedSeason?.code || "");
