@@ -789,9 +789,6 @@ export default function GererAsso2Page() {
               <Link href="/bureau" className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800">
                 Retour bureau
               </Link>
-              <Link href="/bureau/liste-athletes" className="rounded-full bg-cyan-700 px-4 py-2 text-xs font-semibold text-white hover:bg-cyan-800">
-                Liste des athlètes
-              </Link>
             </div>
           </div>
         </header>
