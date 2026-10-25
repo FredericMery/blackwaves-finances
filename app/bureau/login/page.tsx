@@ -74,6 +74,9 @@ export default function LoginPage() {
             <h2 className="mt-2 text-[1.6rem] font-semibold leading-tight text-slate-950 sm:text-2xl">
               Module de connexion
             </h2>
+            <p className="mt-2 text-sm font-medium text-slate-600">
+              Bienvenue dans le monde de la finance BW
+            </p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
