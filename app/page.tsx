@@ -63,13 +63,15 @@ export default function Home() {
   };
 
   return (
-    <main className="mx-auto flex min-h-[70vh] w-full max-w-3xl flex-col items-center justify-center px-6">
+    <main className="finance-app flex min-h-screen w-full flex-col items-center justify-center bg-slate-50 px-6 text-slate-950">
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-[0_18px_50px_rgba(148,163,184,0.14)] sm:p-6">
-        <h2 className="text-2xl font-semibold text-slate-950">Module de connexion</h2>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-cyan-800">Espace bureau</p>
+        <h1 className="text-2xl font-semibold text-slate-950">BlackWaves Finances</h1>
+        <p className="mt-2 text-sm text-slate-600">Connectez-vous pour suivre le budget et les factures du club.</p>
 
         <form onSubmit={handleLogin} className="mt-5 space-y-4">
           {error && (
-            <div className="rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div role="alert" className="rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </div>
           )}

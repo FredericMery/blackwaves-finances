@@ -4,13 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const budgetMenu = [
-  { href: "/bureau", label: "Accueil" },
-  { href: "/bureau/gerer-asso-2", label: "Gérer asso 2" },
-  { href: "/bureau/dashboard", label: "Synthèse" },
-  { href: "/bureau/budget", label: "Budget" },
+  { href: "/bureau/dashboard", label: "Vue d’ensemble" },
+  { href: "/bureau/gerer-asso-2", label: "Budget & factures" },
+  { href: "/bureau/budget", label: "Mouvements" },
   { href: "/bureau/previsionnel", label: "Prévisionnel" },
-  { href: "/bureau/comparatif-budget", label: "Comparatif" },
-  { href: "/bureau/finances", label: "Finances" },
+  { href: "/bureau/comparatif-budget", label: "Écarts budgétaires" },
+  { href: "/bureau/finances", label: "Analyse par saison" },
 ];
 
 export default function BureauBudgetShell({ children }: { children: React.ReactNode }) {
@@ -24,53 +23,35 @@ export default function BureauBudgetShell({ children }: { children: React.ReactN
     pathname === href || pathname?.startsWith(`${href}/`);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.10),_transparent_24%),linear-gradient(180deg,#f8fbff_0%,#f4f7fb_46%,#eef4f7_100%)] text-slate-950">
-      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/88 backdrop-blur-xl">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.38em] text-cyan-700/80">
-                Espace bureau
-              </p>
-              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                Pilotage budget & trésorerie
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-600 sm:text-[15px]">
-                Un environnement sobre,
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/bureau"
-                className="rounded-full border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-800 transition hover:bg-cyan-100"
-              >
-                Accueil bureau
-              </Link>
-              <Link
-                href="/bureau/gerer-asso-2"
-                className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 transition hover:bg-violet-100"
-              >
-                Gérer asso 2
-              </Link>
-              <Link
-                href="/bureau/budget"
-                className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
-              >
-                Saisie budget
-              </Link>
-            </div>
+    <div className="finance-app min-h-screen bg-slate-50 text-slate-950">
+      <a href="#finance-content" className="finance-skip-link">
+        Aller au contenu
+      </a>
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link href="/bureau/dashboard" className="flex min-h-11 items-center gap-3">
+              <span aria-hidden="true" className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-lg font-bold text-cyan-300">BW</span>
+              <span>
+                <span className="block text-lg font-bold tracking-tight">BlackWaves <span className="text-cyan-800">Finances</span></span>
+                <span className="block text-xs text-slate-500">Le budget du club, simplement.</span>
+              </span>
+            </Link>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+              Espace bureau
+            </span>
           </div>
 
-          <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
+          <nav aria-label="Navigation financière" className="mt-4 grid grid-cols-2 gap-1 pb-3 sm:grid-cols-3 lg:flex lg:flex-wrap">
             {budgetMenu.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium transition ${
+                aria-current={isActive(item.href) ? "page" : undefined}
+                className={`flex min-h-11 items-center rounded-lg px-3 py-2 text-sm font-semibold transition ${
                   isActive(item.href)
-                    ? "border-sky-200 bg-sky-100 text-sky-900 shadow-[0_0_0_1px_rgba(186,230,253,0.9)]"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                    ? "bg-slate-950 text-white"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                 }`}
               >
                 {item.label}
@@ -80,9 +61,12 @@ export default function BureauBudgetShell({ children }: { children: React.ReactN
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main id="finance-content" tabIndex={-1} className="mx-auto w-full min-w-0 max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {children}
       </main>
+      <footer className="mx-auto max-w-7xl px-4 pb-6 text-xs leading-relaxed text-slate-500 sm:px-6 lg:px-8">
+        Budget & factures suit les lignes, engagements et paiements. Mouvements, prévisionnel et analyses utilisent le suivi budgétaire distinct existant ; leurs montants ne sont pas additionnés.
+      </footer>
     </div>
   );
 }

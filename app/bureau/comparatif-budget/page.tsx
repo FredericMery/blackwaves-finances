@@ -1,11 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { supabase } from '@/lib/supabaseClient';
 
 type BudgetType = 'depense' | 'recette';
 
@@ -52,6 +48,13 @@ type AggregResult = {
 
 const SAISONS = ['2024-2025', '2025-2026', '2026-2027'];
 
+function varianceText(actual: number, planned: number, expense = false) {
+  const delta = actual - planned;
+  const label = delta === 0 ? 'À l’équilibre' : (expense ? delta < 0 : delta > 0) ? 'Favorable' : 'Défavorable';
+  const percentage = planned === 0 ? '% non défini (prévu nul)' : `${(delta / Math.abs(planned) * 100).toFixed(1)} %`;
+  return `${label} · ${percentage}`;
+}
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('fr-FR', {
     style: 'currency',
@@ -86,32 +89,79 @@ export default function ComparatifBudgetPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [exporting, setExporting] = useState(false);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sort, setSort] = useState('category');
+  const [filtersReady, setFiltersReady] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [availableSeasons, setAvailableSeasons] = useState(SAISONS);
 
   useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('bureau-comparison-filters') || '{}');
+      if (typeof saved.season === 'string') setSaison(saved.season);
+      if (typeof saved.query === 'string') setQuery(saved.query);
+      if (['all', 'depense', 'recette'].includes(saved.type)) setTypeFilter(saved.type);
+      if (typeof saved.category === 'string') setCategoryFilter(saved.category);
+      if (['category', 'variance', 'planned', 'actual'].includes(saved.sort)) setSort(saved.sort);
+    } catch { /* Storage is optional. */ }
+    setFiltersReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    try {
+      sessionStorage.setItem('bureau-comparison-filters', JSON.stringify({ season: saison, query, type: typeFilter, category: categoryFilter, sort }));
+    } catch { /* Keep filters usable without storage. */ }
+  }, [saison, query, typeFilter, categoryFilter, sort, filtersReady]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSeasons = async () => {
+      const seasons = new Set(SAISONS);
+      try {
+        for (const table of ['budget_lignes', 'budget_previsionnel']) {
+          for (let start = 0; ; start += 1000) {
+            const { data, error } = await supabase.from(table).select('id, saison').order('id').range(start, start + 999);
+            if (error) throw error;
+            (data || []).forEach(row => { if (row.saison) seasons.add(row.saison); });
+            if (!data || data.length < 1000) break;
+          }
+        }
+        if (!cancelled) setAvailableSeasons(Array.from(seasons).sort().reverse());
+      } catch { /* The default seasons and a manual season field remain available. */ }
+    };
+    void loadSeasons();
+    return () => { cancelled = true; };
+  }, [retry]);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    let cancelled = false;
     const load = async () => {
       setStatus('loading');
       setError(null);
+      setPrevisionnel([]);
+      setLignes([]);
 
       try {
-        const [
-          { data: prevData, error: prevErr },
-          { data: realData, error: realErr },
-        ] = await Promise.all([
-          supabase.from('budget_previsionnel').select('*').eq('saison', saison),
-          supabase.from('budget_lignes').select('*').eq('saison', saison),
-        ]);
-
-        if (prevErr || realErr) {
-          console.error('Erreur chargement comparatif', { prevErr, realErr });
-          setError("Impossible de charger les données de budget pour cette saison.");
-          setStatus('error');
-          return;
+        async function readAll(table: 'budget_lignes' | 'budget_previsionnel') {
+          const rows = [];
+          for (let start = 0; ; start += 1000) {
+            const { data, error } = await supabase.from(table).select('*').eq('saison', saison).order('id').range(start, start + 999);
+            if (error) throw error;
+            rows.push(...(data || []));
+            if (!data || data.length < 1000) return rows;
+          }
         }
-
+        const [prevData, realData] = await Promise.all([readAll('budget_previsionnel'), readAll('budget_lignes')]);
+        if (cancelled) return;
         setPrevisionnel((prevData || []) as PrevisionnelLigne[]);
         setLignes((realData || []) as BudgetLigne[]);
         setStatus('success');
       } catch (e) {
+        if (cancelled) return;
         console.error('Erreur inattendue comparatif', e);
         setError(
           "Une erreur inattendue s'est produite. Merci de réessayer un peu plus tard."
@@ -121,7 +171,8 @@ export default function ComparatifBudgetPage() {
     };
 
     load();
-  }, [saison]);
+    return () => { cancelled = true; };
+  }, [saison, retry, filtersReady]);
 
   const aggreg: AggregResult = useMemo(() => {
     const map = new Map<string, AggregRow>();
@@ -239,6 +290,18 @@ export default function ComparatifBudgetPage() {
   const soldeReal = aggreg.totalRealRec - aggreg.totalRealDep;
   const ecartSolde = soldeReal - soldePrev;
 
+  const categories = Array.from(new Set([...aggreg.depenses, ...aggreg.recettes].map(r => r.categorie))).sort();
+  const filteredRows = [...aggreg.depenses, ...aggreg.recettes].filter(row =>
+    (typeFilter === 'all' || row.type === typeFilter) &&
+    (categoryFilter === 'all' || row.categorie === categoryFilter) &&
+    `${row.categorie} ${row.designation}`.toLocaleLowerCase('fr').includes(query.trim().toLocaleLowerCase('fr'))
+  ).sort((a, b) => {
+    if (sort === 'variance') return Math.abs(b.montantRealise - b.montantPrevu) - Math.abs(a.montantRealise - a.montantPrevu);
+    if (sort === 'planned') return b.montantPrevu - a.montantPrevu;
+    if (sort === 'actual') return b.montantRealise - a.montantRealise;
+    return a.categorie.localeCompare(b.categorie) || a.designation.localeCompare(b.designation);
+  });
+
   const handleExportPdf = async () => {
     try {
       setExporting(true);
@@ -264,7 +327,7 @@ export default function ComparatifBudgetPage() {
       cursorY += 22;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
-      doc.text(`Saison : ${saison}`, marginX, cursorY);
+      doc.text(`Saison complete : ${saison}`, marginX, cursorY);
       doc.text(`Généré le : ${formatDateFR(new Date())}`, marginX + 160, cursorY);
 
       // Synthèse
@@ -275,7 +338,7 @@ export default function ComparatifBudgetPage() {
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
-      doc.text('Synthèse', marginX + 16, cursorY + 18);
+      doc.text('Synthèse (résultat, pas solde bancaire)', marginX + 16, cursorY + 18);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
@@ -371,8 +434,8 @@ export default function ComparatifBudgetPage() {
           },
         });
 
-        // @ts-ignore
-        cursorY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 26 : cursorY + 26;
+        const finalY = (doc as typeof doc & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
+        cursorY = finalY ? finalY + 26 : cursorY + 26;
 
         // Saut de page si nécessaire avant la prochaine section
         const pageHeight = doc.internal.pageSize.getHeight();
@@ -405,363 +468,92 @@ export default function ComparatifBudgetPage() {
     }
   };
 
+  const panel = 'min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
+  const inputClass = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900';
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="mx-auto max-w-6xl px-4 pb-16 pt-10">
-        {/* En-tête */}
-        <header className="mb-8 flex flex-col gap-3 border-b border-white/5 pb-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-violet-400">
-            Espace bureau • finances
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 text-slate-900">
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-widest text-cyan-700">Pilotage financier</p>
+        <h1 className="mt-2 text-3xl font-bold">Comparatif prévisionnel / réalisé</h1>
+        <p className="mt-2 text-sm text-slate-600">Comparez les postes du budget historique du club. Le résultat n&apos;est pas le solde bancaire.</p>
+      </header>
+      <section className={`${panel} flex flex-wrap items-end gap-4`} aria-label="Saison et export">
+        <label className="grid gap-1 text-sm" htmlFor="comparison-season">Saison
+          <input id="comparison-season" list="comparison-seasons" className={inputClass} value={saison} onChange={e => { setSaison(e.target.value); setStatus('loading'); }} placeholder="2025-2026" />
+          <datalist id="comparison-seasons">{Array.from(new Set([...availableSeasons, saison])).map(s => <option key={s} value={s} />)}</datalist>
+        </label>
+        <button type="button" onClick={handleExportPdf} disabled={status !== 'success' || exporting} className="rounded-lg bg-cyan-800 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-900 disabled:opacity-50">
+          {exporting ? 'Export en cours…' : 'Exporter PDF · saison complète'}
+        </button>
+        <p className="max-w-md text-xs text-slate-500">Le PDF exporte tous les postes de la saison {saison || 'sélectionnée'}, sans appliquer les filtres de détail ci-dessous.</p>
+      </section>
+      {status === 'loading' || status === 'idle' ? <p role="status" className={panel}>Chargement des données…</p> : status === 'error' ? <div role="alert" className={`${panel} text-rose-700`}>{error} <button className="ml-3 rounded-lg border border-rose-300 px-3 py-2" onClick={() => setRetry(r => r + 1)}>Réessayer</button></div> : <>
+        <p className="text-sm text-slate-600">Synthèse indépendante des filtres de détail · Saison {saison} · Toutes les catégories et tous les postes · {previsionnel.length} lignes prévisionnelles et {lignes.length} mouvements.</p>
+        <section className="grid gap-4 md:grid-cols-3" aria-label={`Synthèse de la saison ${saison}`}>
+          <article className={panel}>
+            <h2 className="text-sm font-semibold text-slate-600">Prévisionnel · saison complète</h2>
+            <dl className="mt-3 space-y-2 text-sm">
+              <div className="flex justify-between gap-3"><dt>Recettes</dt><dd>{formatCurrency(aggreg.totalPrevRec)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Dépenses</dt><dd>{formatCurrency(aggreg.totalPrevDep)}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-slate-200 pt-3 font-semibold"><dt>Résultat prévu</dt><dd>{formatCurrency(soldePrev)}</dd></div>
+            </dl>
+          </article>
+          <article className={panel}>
+            <h2 className="text-sm font-semibold text-slate-600">Réalisé · saison complète</h2>
+            <dl className="mt-3 space-y-2 text-sm">
+              <div className="flex justify-between gap-3"><dt>Recettes</dt><dd>{formatCurrency(aggreg.totalRealRec)}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Dépenses</dt><dd>{formatCurrency(aggreg.totalRealDep)}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-slate-200 pt-3 font-semibold"><dt>Résultat réalisé</dt><dd>{formatCurrency(soldeReal)}</dd></div>
+            </dl>
+          </article>
+          <article className={panel}>
+            <h2 className="text-sm font-semibold text-slate-600">Écarts · réalisé − prévu</h2>
+            <dl className="mt-3 space-y-3 text-sm">
+              {[
+                { title: 'Recettes', delta: ecartRec, actual: aggreg.totalRealRec, planned: aggreg.totalPrevRec, expense: false },
+                { title: 'Dépenses', delta: ecartDep, actual: aggreg.totalRealDep, planned: aggreg.totalPrevDep, expense: true },
+                { title: 'Résultat', delta: ecartSolde, actual: soldeReal, planned: soldePrev, expense: false },
+              ].map(r => <div key={r.title}><div className="flex justify-between gap-3"><dt>{r.title}</dt><dd className="font-semibold">{formatCurrency(r.delta)}</dd></div><p className={`text-xs ${r.delta === 0 ? 'text-slate-500' : (r.expense ? r.delta < 0 : r.delta > 0) ? 'text-emerald-700' : 'text-rose-700'}`}>{varianceText(r.actual, r.planned, r.expense)}</p></div>)}
+            </dl>
+          </article>
+        </section>
+        <section className={panel} aria-label="Filtres du détail">
+          <h2 className="mb-4 text-lg font-semibold">Explorer les postes</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="grid gap-1 text-sm">Rechercher un poste ou une catégorie<input type="search" className={`${inputClass} min-w-0`} value={query} onChange={e => setQuery(e.target.value)} placeholder="Déplacement, matériel…" /></label>
+            <label className="grid gap-1 text-sm">Type<select className={inputClass} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">Tous les types</option><option value="depense">Dépenses</option><option value="recette">Recettes</option></select></label>
+            <label className="grid min-w-0 gap-1 text-sm">Catégorie<select className={`${inputClass} max-w-full`} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option value="all">Toutes les catégories</option>{categories.map(c => <option key={c} value={c}>{c}</option>)}{categoryFilter !== 'all' && !categories.includes(categoryFilter) && <option value={categoryFilter}>{categoryFilter} (aucune donnée)</option>}</select></label>
+            <label className="grid gap-1 text-sm">Trier par<select className={inputClass} value={sort} onChange={e => setSort(e.target.value)}><option value="category">Catégorie et poste (A–Z)</option><option value="variance">Écart absolu décroissant</option><option value="planned">Montant prévu décroissant</option><option value="actual">Montant réalisé décroissant</option></select></label>
           </div>
-          <h1 className="text-3xl font-bold text-white md:text-4xl">
-            Comparatif prévisionnel / réalisé
-          </h1>
-          <p className="max-w-2xl text-sm text-slate-300">
-            Visualisez, par catégorie et par poste, l&apos;écart entre le budget
-            prévisionnel et les dépenses / recettes réellement enregistrées.
-          </p>
-        </header>
-
-        {/* Barre de saison + état + export */}
-        <section className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-medium text-slate-200">Saison</label>
-            <select
-              className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-sm text-slate-50 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-500"
-              value={saison}
-              onChange={(e) => setSaison(e.target.value)}
-            >
-              {SAISONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-
-            <button
-              type="button"
-              onClick={handleExportPdf}
-              disabled={status !== 'success' || exporting}
-              className="inline-flex items-center justify-center rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-violet-500/30 hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
-              title={
-                status !== 'success'
-                  ? 'Attendez la fin du chargement pour exporter.'
-                  : 'Exporter en PDF'
-              }
-            >
-              {exporting ? 'Export en cours…' : 'Exporter PDF'}
-            </button>
-          </div>
-
-          <div className="text-xs text-slate-400">
-            {status === 'loading' && 'Chargement des données…'}
-            {status === 'success' &&
-              `${previsionnel.length} lignes prévisionnelles • ${lignes.length} mouvements réalisés`}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-600" role="status">{filteredRows.length} poste(s) · Saison {saison} · {categoryFilter === 'all' ? 'Toutes les catégories' : categoryFilter} · {typeFilter === 'all' ? 'Tous les types' : typeFilter === 'depense' ? 'Dépenses' : 'Recettes'}{query.trim() && ` · Recherche « ${query.trim()} »`}</p>
+            <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onClick={() => { setQuery(''); setCategoryFilter('all'); setTypeFilter('all'); setSort('category'); }}>Réinitialiser le détail</button>
           </div>
         </section>
-
-        {error && (
-          <div className="mb-6 rounded-xl border border-rose-500/40 bg-rose-900/40 px-4 py-3 text-sm text-rose-50">
-            {error}
-          </div>
-        )}
-
-        {/* Cartes de synthèse globales */}
-        <section className="mb-8 grid gap-4 md:grid-cols-3">
-          {/* Prévisionnel global */}
-          <div className="rounded-2xl border border-sky-500/40 bg-gradient-to-br from-sky-900/50 via-slate-900/40 to-slate-950/80 p-4 shadow-lg shadow-sky-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-sky-300">
-              Prévisionnel global
+        <p className="text-xs text-slate-600">Favorable = dépenses inférieures au prévu ou recettes supérieures au prévu. Pourcentage = (réalisé − prévu) / |prévu| ; non défini lorsque le prévu est nul. Le rattachement prévisionnel est prioritaire ; sans lien valide, le rapprochement utilise le type, la catégorie et la désignation.</p>
+        {(['depense', 'recette'] as const).filter(type => typeFilter === 'all' || typeFilter === type).map(type => {
+          const rows = filteredRows.filter(r => r.type === type);
+          return <section key={type} className={panel}>
+            <h2 className="text-lg font-semibold">{type === 'depense' ? 'Dépenses' : 'Recettes'} par catégorie et poste</h2>
+            <p className="my-2 text-xs text-slate-600">Détail filtré · Saison {saison} · {categoryFilter === 'all' ? 'Toutes les catégories' : categoryFilter} · {rows.length} poste(s) · Prévu : {formatCurrency(rows.reduce((s, r) => s + r.montantPrevu, 0))} · Réalisé : {formatCurrency(rows.reduce((s, r) => s + r.montantRealise, 0))}</p>
+            <div className="mt-3 max-h-[520px] overflow-auto rounded-lg border border-slate-200" role="region" aria-label={`${type === 'depense' ? 'Dépenses' : 'Recettes'} comparées`} tabIndex={0}>
+              <table className="w-full min-w-[740px] text-sm">
+                <thead className="sticky top-0 bg-slate-100 text-slate-700"><tr><th scope="col" className="px-3 py-3 text-left">Catégorie</th><th scope="col" className="px-3 py-3 text-left">Poste</th><th scope="col" className="px-3 py-3 text-right">Prévu</th><th scope="col" className="px-3 py-3 text-right">Réalisé</th><th scope="col" className="px-3 py-3 text-right">Écart € / % et appréciation</th></tr></thead>
+                <tbody>{rows.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">Aucun poste ne correspond à ces filtres pour cette saison.</td></tr> : rows.map((row, index) => {
+                  const delta = row.montantRealise - row.montantPrevu;
+                  const favorable = type === 'depense' ? delta < 0 : delta > 0;
+                  return <tr key={`${row.categorie}-${row.designation}-${index}`} className="border-t border-slate-100 even:bg-slate-50">
+                    <td className="px-3 py-3">{row.categorie}</td><th scope="row" className="px-3 py-3 text-left font-medium">{row.designation}</th>
+                    <td className="whitespace-nowrap px-3 py-3 text-right">{formatCurrency(row.montantPrevu)}</td><td className="whitespace-nowrap px-3 py-3 text-right">{formatCurrency(row.montantRealise)}</td>
+                    <td className={`px-3 py-3 text-right ${delta === 0 ? 'text-slate-600' : favorable ? 'text-emerald-700' : 'text-rose-700'}`}><p className="font-semibold">{formatCurrency(delta)}</p><p className="mt-1 text-xs">{varianceText(row.montantRealise, row.montantPrevu, type === 'depense')}</p></td>
+                  </tr>;
+                })}</tbody>
+              </table>
             </div>
-            <div className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-300">Recettes prévues</span>
-                <span className="font-semibold">
-                  {formatCurrency(aggreg.totalPrevRec)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-300">Dépenses prévues</span>
-                <span className="font-semibold">
-                  {formatCurrency(aggreg.totalPrevDep)}
-                </span>
-              </div>
-            </div>
-            <div className="mt-3 border-t border-white/10 pt-2 text-xs text-slate-300">
-              Solde prévisionnel :{' '}
-              <span
-                className={
-                  soldePrev >= 0
-                    ? 'font-semibold text-emerald-300'
-                    : 'font-semibold text-rose-300'
-                }
-              >
-                {formatCurrency(soldePrev)}
-              </span>
-            </div>
-          </div>
-
-          {/* Réalisé global */}
-          <div className="rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-900/50 via-slate-900/40 to-slate-950/80 p-4 shadow-lg shadow-emerald-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-emerald-300">
-              Réalisé global
-            </div>
-            <div className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-300">Recettes réalisées</span>
-                <span className="font-semibold">
-                  {formatCurrency(aggreg.totalRealRec)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-300">Dépenses réalisées</span>
-                <span className="font-semibold">
-                  {formatCurrency(aggreg.totalRealDep)}
-                </span>
-              </div>
-            </div>
-            <div className="mt-3 border-t border-white/10 pt-2 text-xs text-slate-300">
-              Solde réalisé :{' '}
-              <span
-                className={
-                  soldeReal >= 0
-                    ? 'font-semibold text-emerald-300'
-                    : 'font-semibold text-rose-300'
-                }
-              >
-                {formatCurrency(soldeReal)}
-              </span>
-            </div>
-          </div>
-
-          {/* Écart global */}
-          <div className="rounded-2xl border border-violet-500/40 bg-gradient-to-br from-violet-900/60 via-slate-900/40 to-slate-950/80 p-4 shadow-lg shadow-violet-900/50">
-            <div className="text-xs font-medium uppercase tracking-wide text-violet-300">
-              Écart global
-            </div>
-            <div className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-300">Écart recettes</span>
-                <span
-                  className={
-                    ecartRec >= 0
-                      ? 'font-semibold text-emerald-300'
-                      : 'font-semibold text-rose-300'
-                  }
-                >
-                  {formatCurrency(ecartRec)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-300">Écart dépenses</span>
-                <span
-                  className={
-                    ecartDep <= 0
-                      ? 'font-semibold text-emerald-300'
-                      : 'font-semibold text-rose-300'
-                  }
-                >
-                  {formatCurrency(ecartDep)}
-                </span>
-              </div>
-            </div>
-            <div className="mt-3 border-t border-white/10 pt-2 text-xs text-slate-300">
-              Écart sur le solde :{' '}
-              <span
-                className={
-                  ecartSolde >= 0
-                    ? 'font-semibold text-emerald-300'
-                    : 'font-semibold text-rose-300'
-                }
-              >
-                {formatCurrency(ecartSolde)}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        {/* Tableaux détaillés */}
-        <section className="space-y-8">
-          {/* DEPENSES */}
-          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/40">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-white">
-                  Dépenses par catégorie et poste
-                </h2>
-                <p className="text-[11px] text-slate-300">
-                  Comparatif entre budget prévu et réalisé pour chaque ligne de dépense.
-                </p>
-              </div>
-              <div className="text-right text-xs text-slate-300">
-                Total prévu :{' '}
-                <span className="font-semibold text-slate-50">
-                  {formatCurrency(aggreg.totalPrevDep)}
-                </span>
-                <br />
-                Total réalisé :{' '}
-                <span className="font-semibold text-slate-50">
-                  {formatCurrency(aggreg.totalRealDep)}
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-white/5 bg-slate-950/70">
-              <div className="max-h-[380px] overflow-auto text-xs">
-                <table className="min-w-full border-collapse">
-                  <thead className="bg-slate-900/90 text-[11px] uppercase tracking-wide text-slate-300">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Catégorie</th>
-                      <th className="px-3 py-2 text-left">Poste</th>
-                      <th className="px-3 py-2 text-right">Prévu</th>
-                      <th className="px-3 py-2 text-right">Réalisé</th>
-                      <th className="px-3 py-2 text-right">Écart</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aggreg.depenses.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="px-4 py-6 text-center text-xs text-slate-400"
-                        >
-                          Aucune donnée de dépense pour cette saison.
-                        </td>
-                      </tr>
-                    )}
-
-                    {aggreg.depenses.map((row, idx) => {
-                      const ecart = row.montantRealise - row.montantPrevu;
-                      return (
-                        <tr
-                          key={`${row.categorie}-${row.designation}-${idx}`}
-                          className={
-                            idx % 2 === 0 ? 'bg-slate-900/40' : 'bg-slate-900/10'
-                          }
-                        >
-                          <td className="whitespace-nowrap px-3 py-2 text-slate-200">
-                            {row.categorie}
-                          </td>
-                          <td className="px-3 py-2 text-slate-100">
-                            {row.designation}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-200">
-                            {formatCurrency(row.montantPrevu)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-100">
-                            {formatCurrency(row.montantRealise)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right">
-                            <span
-                              className={
-                                ecart <= 0
-                                  ? 'font-semibold text-emerald-300'
-                                  : 'font-semibold text-rose-300'
-                              }
-                            >
-                              {formatCurrency(ecart)}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          {/* RECETTES */}
-          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/40">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-white">
-                  Recettes par catégorie et poste
-                </h2>
-                <p className="text-[11px] text-slate-300">
-                  Comparatif entre budget prévu et réalisé pour chaque ligne de recette.
-                </p>
-              </div>
-              <div className="text-right text-xs text-slate-300">
-                Total prévu :{' '}
-                <span className="font-semibold text-slate-50">
-                  {formatCurrency(aggreg.totalPrevRec)}
-                </span>
-                <br />
-                Total réalisé :{' '}
-                <span className="font-semibold text-slate-50">
-                  {formatCurrency(aggreg.totalRealRec)}
-                </span>
-              </div>
-            </div>
-
-            {/* ✅ fix petite typo border_white/5 -> border-white/5 */}
-            <div className="overflow-hidden rounded-xl border border-white/5 bg-slate-950/70">
-              <div className="max-h-[380px] overflow-auto text-xs">
-                <table className="min-w-full border-collapse">
-                  <thead className="bg-slate-900/90 text-[11px] uppercase tracking-wide text-slate-300">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Catégorie</th>
-                      <th className="px-3 py-2 text-left">Poste</th>
-                      <th className="px-3 py-2 text-right">Prévu</th>
-                      <th className="px-3 py-2 text-right">Réalisé</th>
-                      <th className="px-3 py-2 text-right">Écart</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aggreg.recettes.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="px-4 py-6 text-center text-xs text-slate-400"
-                        >
-                          Aucune donnée de recette pour cette saison.
-                        </td>
-                      </tr>
-                    )}
-
-                    {aggreg.recettes.map((row, idx) => {
-                      const ecart = row.montantRealise - row.montantPrevu;
-                      return (
-                        <tr
-                          key={`${row.categorie}-${row.designation}-${idx}`}
-                          className={
-                            idx % 2 === 0 ? 'bg-slate-900/40' : 'bg-slate-900/10'
-                          }
-                        >
-                          <td className="whitespace-nowrap px-3 py-2 text-slate-200">
-                            {row.categorie}
-                          </td>
-                          <td className="px-3 py-2 text-slate-100">
-                            {row.designation}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-200">
-                            {formatCurrency(row.montantPrevu)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right text-slate-100">
-                            {formatCurrency(row.montantRealise)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right">
-                            <span
-                              className={
-                                ecart >= 0
-                                  ? 'font-semibold text-emerald-300'
-                                  : 'font-semibold text-rose-300'
-                              }
-                            >
-                              {formatCurrency(ecart)}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
+          </section>;
+        })}
+      </>}
     </div>
   );
 }

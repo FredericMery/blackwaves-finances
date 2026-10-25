@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useMemo, useState, FormEvent, useRef } from 'react';
+import React, { useEffect, useMemo, useState, FormEvent, useRef, useId } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -88,67 +88,6 @@ const formatDate = (value: string) => {
   return d.toLocaleDateString('fr-FR');
 };
 
-function TabButton({
-  active,
-  onClick,
-  title,
-  subtitle,
-  tone = 'pink',
-}: {
-  active: boolean;
-  onClick: () => void;
-  title: string;
-  subtitle: string;
-  tone?: 'pink' | 'sky';
-}) {
-  const dot =
-    tone === 'pink'
-      ? active
-        ? 'bg-pink-500'
-        : 'bg-slate-600 group-hover:bg-slate-500'
-      : active
-      ? 'bg-sky-500'
-      : 'bg-slate-600 group-hover:bg-slate-500';
-
-  const border =
-    tone === 'pink'
-      ? active
-        ? 'border-pink-500/40'
-        : 'border-white/10'
-      : active
-      ? 'border-sky-500/40'
-      : 'border-white/10';
-
-  const glow =
-    tone === 'pink'
-      ? active
-        ? 'shadow-pink-500/10'
-        : 'shadow-black/0'
-      : active
-      ? 'shadow-sky-500/10'
-      : 'shadow-black/0';
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'group w-full rounded-2xl border p-4 text-left transition',
-        active ? `bg-slate-950/50 shadow-lg ${glow}` : 'bg-slate-900/40 hover:bg-slate-900/60',
-        border,
-      ].join(' ')}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className={['text-sm font-semibold', active ? 'text-white' : 'text-slate-100'].join(' ')}>{title}</div>
-          <div className="mt-1 text-xs text-slate-300">{subtitle}</div>
-        </div>
-        <div className={['mt-0.5 h-2.5 w-2.5 rounded-full transition', dot].join(' ')} />
-      </div>
-    </button>
-  );
-}
-
 function Pill({
   children,
   tone = 'slate',
@@ -158,14 +97,14 @@ function Pill({
 }) {
   const cls =
     tone === 'emerald'
-      ? 'bg-emerald-900/60 text-emerald-200 border-emerald-500/20'
+      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
       : tone === 'rose'
-      ? 'bg-rose-900/60 text-rose-200 border-rose-500/20'
+      ? 'bg-rose-50 text-rose-800 border-rose-200'
       : tone === 'sky'
-      ? 'bg-sky-900/60 text-sky-200 border-sky-500/20'
+      ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
       : tone === 'amber'
-      ? 'bg-amber-900/60 text-amber-200 border-amber-500/20'
-      : 'bg-slate-800/60 text-slate-200 border-white/10';
+      ? 'bg-amber-50 text-amber-800 border-amber-200'
+      : 'bg-slate-100 text-slate-700 border-slate-200';
 
   return (
     <span className={['inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold', cls].join(' ')}>
@@ -180,7 +119,6 @@ function Modal({
   subtitle,
   onClose,
   children,
-  variant = 'dark',
 }: {
   open: boolean;
   title: string;
@@ -189,54 +127,71 @@ function Modal({
   children: React.ReactNode;
   variant?: 'dark' | 'white';
 }) {
-  if (!open) return null;
-
-  const isWhite = variant === 'white';
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!open || !dialog) return;
+    const trigger = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => {
+      dialog.close();
+      if (trigger?.isConnected) trigger.focus();
+      else document.getElementById('budget-add')?.focus();
+    };
+  }, [open]);
 
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
-      <div
-        className={[
-          'w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl border shadow-2xl shadow-black/60',
-          isWhite ? 'border-slate-200 bg-white' : 'border-white/10 bg-slate-950',
-        ].join(' ')}
-      >
-        <div
-          className={[
-            'flex items-start justify-between gap-4 border-b px-5 py-4',
-            isWhite ? 'border-slate-200 bg-white' : 'border-white/10 bg-slate-900/40',
-          ].join(' ')}
-        >
+    <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+        if (event.key !== 'Tab') return;
+        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'))
+          .filter((control) => control.getClientRects().length > 0);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!first) { event.preventDefault(); return; }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) {
+          event.preventDefault(); first.focus();
+        }
+      }}
+      className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 [&_button]:min-h-11 [&_a]:min-h-11 [&_input:not([type=hidden])]:min-h-11 [&_select]:min-h-11 [&_button]:min-w-11 [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-cyan-700">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
           <div>
-            <div className={['text-base font-semibold', isWhite ? 'text-slate-900' : 'text-white'].join(' ')}>{title}</div>
-            {subtitle && <div className={['mt-1 text-xs', isWhite ? 'text-slate-600' : 'text-slate-300'].join(' ')}>{subtitle}</div>}
+            <h2 id={titleId} className="text-base font-semibold text-slate-900">{title}</h2>
+            {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className={[
-              'rounded-full px-3 py-1.5 text-xs font-semibold',
-              isWhite ? 'bg-slate-100 text-slate-900 hover:bg-slate-200' : 'bg-slate-800/60 text-slate-100 hover:bg-slate-700/60',
-            ].join(' ')}
+            className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-200"
           >
             Fermer
           </button>
         </div>
 
-        <div className={['px-5 py-4 overflow-auto max-h-[calc(90vh-110px)]', isWhite ? 'bg-white' : ''].join(' ')}>
-          {children}
+        <div className="px-5 py-4">
+          {open ? children : null}
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }
 
 export default function BudgetPage() {
+  const [retryCount, setRetryCount] = useState(0);
+  const [statusPrev, setStatusPrev] = useState<Status>('loading');
+  const [statusRefs, setStatusRefs] = useState<Status>('loading');
+  const [notice, setNotice] = useState('');
   // ✅ Étape 4 : état global du prévisionnel (toutes saisons) + chargement au montage
   const [previsionnelAll, setPrevisionnelAll] = useState<PrevisionnelLigne[]>([]);
 
   useEffect(() => {
     const loadAllPrev = async () => {
+      setStatusPrev('loading');
+      try {
       const { data, error } = await supabase
         .from('budget_previsionnel')
         .select('*')
@@ -246,6 +201,7 @@ export default function BudgetPage() {
       if (error) {
         console.error('Erreur chargement budget_previsionnel (all)', error);
         setPrevisionnelAll([]);
+        setStatusPrev('error');
         return;
       }
 
@@ -259,13 +215,16 @@ export default function BudgetPage() {
           montant_prevu: Number(row.montant_prevu || 0),
         }))
       );
+      setStatusPrev('success');
+      } catch { setStatusPrev('error'); }
     };
 
     loadAllPrev();
-  }, []);
+  }, [retryCount]);
 
   // UI tabs (UX only)
-  const [activeTab, setActiveTab] = useState<TabKey>('new');
+  const [activeTab, setActiveTab] = useState<TabKey>('moves');
+  const [sortBy, setSortBy] = useState('date-desc');
 
   // Formulaire (mêmes states qu’avant)
   const [type, setType] = useState<BudgetType>('depense');
@@ -315,6 +274,8 @@ export default function BudgetPage() {
 
   useEffect(() => {
     const loadRefs = async () => {
+      setStatusRefs('loading');
+      try {
       const { data: cats, error: errCats } = await supabase
         .from('budget_categories')
         .select('*')
@@ -340,15 +301,18 @@ export default function BudgetPage() {
       } else {
         setRefDesignations((des || []) as BudgetDesignationRow[]);
       }
+      setStatusRefs(errCats || errDes ? 'error' : 'success');
+      } catch { setStatusRefs('error'); }
     };
 
     loadRefs();
-  }, []);
+  }, [retryCount]);
 
   // Chargement initial des mouvements
   useEffect(() => {
     const load = async () => {
       setStatusLoad('loading');
+      try {
       const { data, error } = await supabase.from('budget_lignes').select('*').order('date', { ascending: false });
 
       if (error) {
@@ -358,19 +322,11 @@ export default function BudgetPage() {
       }
       setLignes((data || []) as BudgetLigne[]);
       setStatusLoad('success');
+      } catch { setStatusLoad('error'); }
     };
 
     load();
-  }, []);
-
-  useEffect(() => {
-    setSelectedPrevId('');
-  }, [saison]);
-
-  // Quand on change de type, on réinitialise la sélection prévisionnelle
-  useEffect(() => {
-    setSelectedPrevId('');
-  }, [type]);
+  }, [retryCount]);
 
   // Listes pour filtres
   const saisonsDisponibles = useMemo(() => {
@@ -400,8 +356,14 @@ export default function BudgetPage() {
         if (!texte.includes(s)) return false;
       }
       return true;
+    }).sort((a, b) => {
+      const direction = sortBy.endsWith('-desc') ? -1 : 1;
+      const field = sortBy.split('-')[0];
+      if (field === 'amount') return direction * (Number(a.montant) - Number(b.montant));
+      const key = field === 'category' ? 'categorie' : field === 'designation' ? 'designation' : 'date';
+      return direction * (a[key] || '').localeCompare(b[key] || '', 'fr');
     });
-  }, [lignes, filterSeason, filterType, filterCategory, search, onlyMissingInvoices]);
+  }, [lignes, filterSeason, filterType, filterCategory, search, onlyMissingInvoices, sortBy]);
 
   // UX: pagination/limit côté UI
   const lignesAffichees = useMemo(() => {
@@ -514,10 +476,13 @@ export default function BudgetPage() {
 
       setLignes((prev) => [inserted as BudgetLigne, ...prev]);
       setStatusForm('success');
+      setNotice('Mouvement enregistré avec succès.');
       resetForm();
 
       // UX: bascule automatiquement sur Mouvements après succès + ouvre la popup d’édition facture
       setActiveTab('moves');
+      setOpenPrevModal(false);
+      setOpenFreeModal(false);
       setSelectedLigneId(inserted?.id ?? null);
       setOpenEditModal(true);
     } catch (err) {
@@ -617,6 +582,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
     if (archiveError) {
       console.error('Erreur archive budget_lignes_supprimees', archiveError);
+      setNotice("Impossible d'archiver la ligne. Suppression annulée ; vous pouvez réessayer.");
       window.alert("Impossible d'archiver la ligne supprimée. Suppression annulée.");
       return;
     }
@@ -630,12 +596,14 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
     if (delError) {
       console.error('Erreur suppression budget_lignes', delError);
+      setNotice('Impossible de supprimer le mouvement. Réessayez.');
       window.alert("Impossible de supprimer la ligne. Merci de réessayer.");
       return;
     }
 
     // 3) UI state
     setLignes((prev) => prev.filter((x) => x.id !== ligne.id));
+    setNotice('Mouvement supprimé et conservé dans l’historique.');
     if (selectedLigneId === ligne.id) {
       setSelectedLigneId(null);
       setOpenEditModal(false);
@@ -645,6 +613,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
     }
   } catch (e) {
     console.error('Erreur inattendue suppression', e);
+    setNotice("La suppression a échoué. Réessayez.");
     window.alert("Une erreur inattendue s'est produite.");
   }
 };
@@ -657,29 +626,28 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
     setSearch('');
     setOnlyMissingInvoices(false);
     setDisplayLimit(100);
+    setSortBy('date-desc');
   };
 
   // -----------------------------
   // ✅ NOUVELLE UX SAISIE (POPUPS)
   // -----------------------------
   const [saisieSeason, setSaisieSeason] = useState<string>(saison);
-  useEffect(() => {
-    setSaisieSeason(saison);
-  }, [saison]);
 
   // ✅ filtre "Dépenses prévues" / "Recettes prévues" (Saisie guidée)
   const [saisieType, setSaisieType] = useState<BudgetType>('depense');
+  const [saisieCategory, setSaisieCategory] = useState('toutes');
 
   // Liste des lignes prévisionnelles > 0 (selon saison + type)
   const prevPrevusPositifsSaison = useMemo(() => {
     return previsionnelAll
-      .filter((p) => p.saison === saisieSeason && p.type === saisieType && Number(p.montant_prevu || 0) > 0)
+      .filter((p) => p.saison === saisieSeason && p.type === saisieType && (saisieCategory === 'toutes' || p.categorie === saisieCategory) && Number(p.montant_prevu || 0) > 0)
       .sort((a, b) => {
         const ca = (a.categorie || '').localeCompare(b.categorie || '');
         if (ca !== 0) return ca;
         return (a.designation || '').localeCompare(b.designation || '');
       });
-  }, [previsionnelAll, saisieSeason, saisieType]);
+  }, [previsionnelAll, saisieSeason, saisieType, saisieCategory]);
 
   const [saisieSearch, setSaisieSearch] = useState<string>('');
   const prevPrevusPositifsFiltered = useMemo(() => {
@@ -770,6 +738,8 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
     setErrorUpload(null);
 
     setOpenFreeModal(true);
+    setType(saisieType);
+    setSaison(saisieSeason);
     setSelectedPrevRow(null);
 
     setSelectedPrevId('');
@@ -825,91 +795,187 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categorie]);
 
+  const [uiReady, setUiReady] = useState(false);
+  const pendingLine = useRef<string | null>(null);
+  const pendingScroll = useRef<{ page: number; moves: number; planned: number } | null>(null);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('bw-budget-ui-v2') || '{}');
+      if (saved.tab === 'new' || saved.tab === 'moves') setActiveTab(saved.tab);
+      if (typeof saved.season === 'string') setFilterSeason(saved.season);
+      if (['tous', 'depense', 'recette'].includes(saved.type)) setFilterType(saved.type);
+      if (typeof saved.category === 'string') setFilterCategory(saved.category);
+      if (typeof saved.search === 'string') setSearch(saved.search);
+      if (typeof saved.missing === 'boolean') setOnlyMissingInvoices(saved.missing);
+      if (['30', '100', '300', 'Infinity'].includes(saved.limit)) setDisplayLimit(Number(saved.limit));
+      if (['date-desc', 'date-asc', 'amount-desc', 'amount-asc', 'category-asc', 'category-desc', 'designation-asc', 'designation-desc'].includes(saved.sort)) setSortBy(saved.sort);
+      if (typeof saved.saisieSeason === 'string') { setSaisieSeason(saved.saisieSeason); setSaison(saved.saisieSeason); }
+      if (saved.saisieType === 'recette' || saved.saisieType === 'depense') setSaisieType(saved.saisieType);
+      if (typeof saved.saisieSearch === 'string') setSaisieSearch(saved.saisieSearch);
+      if (typeof saved.saisieCategory === 'string') setSaisieCategory(saved.saisieCategory);
+      if (saved.scroll && typeof saved.scroll.page === 'number') pendingScroll.current = saved.scroll;
+    } catch { /* Storage may be unavailable or stale; keep usable defaults. */ }
+    const applyParams = () => {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get('view');
+      if (view === 'new' || view === 'moves') setActiveTab(view);
+      if (params.has('season')) {
+        const season = params.get('season') || 'toutes';
+        setFilterSeason(season);
+        if (season !== 'toutes') { setSaisieSeason(season); setSaison(season); }
+      }
+      if (params.has('category')) {
+        setFilterCategory(params.get('category') || 'toutes');
+        setSaisieCategory(params.get('category') || 'toutes');
+      }
+      if (params.has('type')) {
+        const kind = params.get('type');
+        setFilterType(kind === 'depense' || kind === 'recette' ? kind : 'tous');
+        if (kind === 'depense' || kind === 'recette') { setSaisieType(kind); setType(kind); }
+      }
+      if (params.has('missing')) setOnlyMissingInvoices(params.get('missing') === '1');
+      pendingLine.current = params.get('line');
+      if (pendingLine.current) setActiveTab('moves');
+      if (params.size) pendingScroll.current = null;
+      setUiReady(true);
+    };
+    applyParams();
+    window.addEventListener('popstate', applyParams);
+    return () => window.removeEventListener('popstate', applyParams);
+  }, []);
+
+  useEffect(() => {
+    if (!uiReady) return;
+    const save = () => {
+      try {
+        sessionStorage.setItem('bw-budget-ui-v2', JSON.stringify({
+          tab: activeTab, season: filterSeason, type: filterType, category: filterCategory, search,
+          missing: onlyMissingInvoices, limit: String(displayLimit), sort: sortBy,
+          saisieSeason, saisieType, saisieSearch, saisieCategory,
+          scroll: pendingScroll.current || {
+            page: window.scrollY,
+            moves: document.getElementById('budget-moves-list')?.scrollTop || 0,
+            planned: document.getElementById('budget-planned-list')?.scrollTop || 0,
+          },
+        }));
+      } catch { /* The page also works without session storage. */ }
+    };
+    save();
+    window.addEventListener('scroll', save, true);
+    window.addEventListener('pagehide', save);
+    return () => { window.removeEventListener('scroll', save, true); window.removeEventListener('pagehide', save); };
+  }, [uiReady, activeTab, filterSeason, filterType, filterCategory, search, onlyMissingInvoices, displayLimit, sortBy, saisieSeason, saisieType, saisieSearch, saisieCategory]);
+
+  useEffect(() => {
+    if (!uiReady || statusLoad !== 'success') return;
+    const id = pendingLine.current;
+    if (id) {
+      pendingLine.current = null;
+      if (lignes.some((line) => line.id === id)) {
+        setSelectedLigneId(id);
+        setStatusFactureEdit('idle');
+        setErrorFactureEdit(null);
+        setFactureFileEdit(null);
+        setOpenEditModal(true);
+      } else setNotice('Le mouvement demandé est introuvable ou inaccessible.');
+    }
+    if (!pendingScroll.current || (activeTab === 'new' && statusPrev !== 'success')) return;
+    const scroll = pendingScroll.current;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo(0, scroll.page);
+      const moves = document.getElementById('budget-moves-list');
+      const planned = document.getElementById('budget-planned-list');
+      if (moves) moves.scrollTop = scroll.moves || 0;
+      if (planned) planned.scrollTop = scroll.planned || 0;
+      pendingScroll.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [uiReady, statusLoad, statusPrev, lignes, activeTab]);
+
+  const openMovement = (line: BudgetLigne) => {
+    setSelectedLigneId(line.id);
+    setStatusFactureEdit('idle');
+    setErrorFactureEdit(null);
+    setFactureFileEdit(null);
+    setOpenEditModal(true);
+  };
+  const displayTotal = (value: number) => statusLoad === 'success' ? formatCurrency(value) : '—';
+
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9fc_46%,#eef4f7_100%)] text-slate-900">
+    <div className="min-h-screen bg-slate-50 text-slate-900 [&_button]:min-h-11 [&_button]:min-w-11 [&_a]:min-h-11 [&_input:not([type=hidden])]:min-h-11 [&_select]:min-h-11 [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-cyan-700">
       <div className="mx-auto max-w-7xl px-4 pb-16 pt-10">
         {/* Header */}
         <header className="mb-8 flex flex-col gap-3 border-b border-slate-200 pb-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-pink-600">Espace bureau • finances</div>
-
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-slate-950 md:text-4xl">Gestion du budget</h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-600">
-                Saisie guidée via budget prévisionnel + consultation avancée. Clique un mouvement pour gérer la facture.
+                Consultez les mouvements, retrouvez leurs justificatifs ou saisissez une dépense / recette.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Link
-                href="/bureau/gerer-asso-2"
-                className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100"
-              >
-                Gérer asso 2
-              </Link>
               <button
+                id="budget-add"
                 type="button"
                 onClick={() => setActiveTab('new')}
                 className={[
                   'rounded-full px-4 py-2 text-xs font-semibold transition',
-                  activeTab === 'new' ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/20' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
+                  'bg-cyan-700 text-white hover:bg-cyan-800',
                 ].join(' ')}
               >
-                + Saisie
+                + Ajouter un mouvement
               </button>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('moves')}
-                className={[
-                  'rounded-full px-4 py-2 text-xs font-semibold transition',
-                  activeTab === 'moves' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
-                ].join(' ')}
-              >
-                Mouvements
-              </button>
-
-              {activeTab === 'moves' && (
-                <button type="button" onClick={resetFilters} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                  Reset filtres
-                </button>
-              )}
+              <Link href="/bureau/previsionnel" className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Voir le prévisionnel →</Link>
             </div>
           </div>
         </header>
+        <div role="status" aria-live="polite" className="mb-4 text-sm text-slate-700">
+          {notice || (statusLoad === 'loading' ? 'Chargement des mouvements…' : '')}
+        </div>
+        {(statusLoad === 'error' || statusPrev === 'error' || statusRefs === 'error') && (
+          <div role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+            {statusLoad === 'error' && <p>Impossible de charger les mouvements. Les totaux ne sont pas disponibles.</p>}
+            {statusPrev === 'error' && <p>Impossible de charger le prévisionnel.</p>}
+            {statusRefs === 'error' && <p>Impossible de charger les catégories ou désignations.</p>}
+            <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="mt-2 rounded-xl border border-rose-300 bg-white px-4 font-semibold">Réessayer</button>
+          </div>
+        )}
 
         {/* KPI cards */}
         <section className="mb-6 grid gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
             <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Solde (filtré)</div>
-            <div className="mt-2 text-2xl font-semibold">{formatCurrency(solde)}</div>
+            <div className="mt-2 text-2xl font-semibold">{displayTotal(solde)}</div>
             <p className="mt-1 text-xs text-emerald-700/70">Basé sur les filtres actifs.</p>
           </div>
 
           <div className="rounded-2xl border border-sky-200 bg-white p-4 shadow-sm">
             <div className="text-xs font-medium uppercase tracking-wide text-sky-700">Recettes</div>
-            <div className="mt-2 text-xl font-semibold">{formatCurrency(totalRecettes)}</div>
+            <div className="mt-2 text-xl font-semibold">{displayTotal(totalRecettes)}</div>
             <p className="mt-1 text-xs text-sky-700/70">Somme des recettes filtrées.</p>
           </div>
 
           <div className="rounded-2xl border border-rose-200 bg-white p-4 shadow-sm">
             <div className="text-xs font-medium uppercase tracking-wide text-rose-700">Dépenses</div>
-            <div className="mt-2 text-xl font-semibold">{formatCurrency(totalDepenses)}</div>
+            <div className="mt-2 text-xl font-semibold">{displayTotal(totalDepenses)}</div>
             <p className="mt-1 text-xs text-rose-700/70">Somme des dépenses filtrées.</p>
           </div>
 
           <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
             <div className="text-xs font-medium uppercase tracking-wide text-amber-700">Factures manquantes</div>
-            <div className="mt-2 text-xl font-semibold">{missingInvoicesCount}</div>
+            <div className="mt-2 text-xl font-semibold">{statusLoad === 'success' ? missingInvoicesCount : '—'}</div>
             <p className="mt-1 text-xs text-amber-700/70">Dans la vue filtrée.</p>
           </div>
         </section>
 
-        {/* Tabs cards */}
-        <section className="mb-6 grid gap-3 md:grid-cols-2">
-          <TabButton tone="pink" active={activeTab === 'new'} onClick={() => setActiveTab('new')} title="Saisie" subtitle="Sélectionne une dépense prévue ou ajoute une dépense non prévue." />
-          <TabButton tone="sky" active={activeTab === 'moves'} onClick={() => setActiveTab('moves')} title="Mouvements" subtitle="Filtrer, consulter, cliquer une ligne → popup + facture." />
-        </section>
+        <nav aria-label="Vues du budget" className="mb-6 flex gap-2 border-b border-slate-200">
+          {([{ key: 'moves', label: 'Mouvements' }, { key: 'new', label: 'Saisie guidée' }] as const).map((tab) => (
+            <button key={tab.key} type="button" aria-current={activeTab === tab.key ? 'page' : undefined} onClick={() => setActiveTab(tab.key)}
+              className={`border-b-2 px-4 py-3 text-sm font-semibold ${activeTab === tab.key ? 'border-cyan-700 text-cyan-800' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>{tab.label}</button>
+          ))}
+        </nav>
 
         {/* TAB 1 - NEW */}
         {activeTab === 'new' && (
@@ -918,25 +984,19 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
               <div>
                 <h2 className="text-lg font-semibold">Saisie guidée</h2>
                 <p className="mt-1 text-xs text-slate-600">
-                  Clique une ligne prévue pour saisir un mouvement en 10 secondes. Sinon, ajoute un mouvement non prévu (catégories/désignations référentielles).
+                  Choisissez une ligne prévue pour préremplir la saisie, ou ajoutez un mouvement non prévu. Photo ou import de facture, sans lecture automatique.
                 </p>
               </div>
+              {statusRefs === 'loading' && <p role="status" className="mt-3 text-sm text-slate-600">Chargement des catégories et désignations pour la saisie libre…</p>}
 
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={openModalFree}
-                  className="rounded-full bg-pink-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
+                  disabled={statusRefs !== 'success'}
+                  className="rounded-xl bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:opacity-60"
                 >
-                  + Ajouter une dépense non prévue
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('moves')}
-                  className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-sky-500/20 hover:bg-sky-400"
-                >
-                  Voir les mouvements →
+                  + Dépense / recette non prévue
                 </button>
               </div>
             </div>
@@ -944,8 +1004,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
             <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="grid gap-3 md:grid-cols-[0.9fr_1.2fr]">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-600">Saison</label>
+                  <label htmlFor="saisie-season" className="text-sm font-medium text-slate-600">Saison</label>
                   <select
+                    id="saisie-season"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                     value={saisieSeason}
                     onChange={(e) => {
@@ -953,7 +1014,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       setSaison(e.target.value);
                     }}
                   >
-                    {SAISONS.map((s) => (
+                    {Array.from(new Set([...SAISONS, saisieSeason])).map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
@@ -962,14 +1023,22 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-600">Recherche</label>
+                  <label htmlFor="saisie-search" className="text-sm font-medium text-slate-600">Recherche</label>
                   <input
+                    id="saisie-search"
                     type="text"
                     placeholder="Catégorie / désignation…"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                     value={saisieSearch}
                     onChange={(e) => setSaisieSearch(e.target.value)}
                   />
+                </div>
+                <div className="mt-3">
+                  <label htmlFor="saisie-category" className="mb-1 block text-sm font-medium text-slate-600">Catégorie prévue</label>
+                  <select id="saisie-category" value={saisieCategory} onChange={(event) => setSaisieCategory(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                    <option value="toutes">Toutes les catégories</option>
+                    {Array.from(new Set([...previsionnelAll.map((row) => row.categorie), ...(saisieCategory !== 'toutes' ? [saisieCategory] : [])])).sort().map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -978,6 +1047,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                   <button
                     type="button"
                     onClick={() => setSaisieType('depense')}
+                    aria-pressed={saisieType === 'depense'}
                     className={[
                       'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold',
                       saisieType === 'depense' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
@@ -989,6 +1059,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                   <button
                     type="button"
                     onClick={() => setSaisieType('recette')}
+                    aria-pressed={saisieType === 'recette'}
                     className={[
                       'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold',
                       saisieType === 'recette' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
@@ -997,16 +1068,32 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     Recettes prévues
                   </button>
 
-                  <span>{prevPrevusPositifsFiltered.length} lignes</span>
+                  <span>{statusPrev === 'success' ? `${prevPrevusPositifsFiltered.length} lignes` : 'Prévisionnel indisponible'}</span>
                 </div>
                 <div className="text-[11px] text-slate-500">Clique une ligne → popup de saisie (pré-rempli).</div>
               </div>
             </div>
 
             {/* Liste prévisionnel */}
+            {(statusPrev === 'loading' || statusLoad === 'loading') && <p role="status" className="mt-4 text-sm text-slate-600">Chargement du prévisionnel et du réalisé…</p>}
+            {statusPrev === 'success' && statusLoad === 'success' && <>
             <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <div className="max-h-[520px] overflow-auto text-xs">
-                <table className="min-w-full border-collapse">
+              <div id="budget-planned-list" className="max-h-[520px] overflow-auto text-sm">
+                <div className="divide-y divide-slate-200 md:hidden">
+                  {prevPrevusPositifsFiltered.map((row) => (
+                    <article key={String(row.id)} className="space-y-3 p-4">
+                      <div><p className="text-xs font-medium text-slate-600">{row.categorie}</p><h3 className="font-semibold">{row.designation}</h3></div>
+                      <dl className="grid grid-cols-3 gap-2 text-xs">
+                        <div><dt className="text-slate-600">Prévu</dt><dd className="mt-1 font-semibold">{formatCurrency0(row.montant_prevu)}</dd></div>
+                        <div><dt className="text-slate-600">Déjà saisi</dt><dd className="mt-1 font-semibold">{formatCurrency0(getDejaSaisiForPrev(row.id))}</dd></div>
+                        <div><dt className="text-slate-600">Reste</dt><dd className={`mt-1 font-semibold ${getResteForPrev(row) < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{formatCurrency0(getResteForPrev(row))}</dd></div>
+                      </dl>
+                      <div className="flex items-center justify-between gap-3"><span className="text-xs text-slate-600">{getPercentForPrev(row)} % saisi</span><button type="button" onClick={() => openModalForPrev(row)} className="rounded-xl bg-cyan-700 px-4 py-2 font-semibold text-white">Saisir →</button></div>
+                    </article>
+                  ))}
+                  {!prevPrevusPositifsFiltered.length && <p className="p-4 text-slate-600">Aucune ligne prévue positive pour ces filtres.</p>}
+                </div>
+                <table className="hidden min-w-full border-collapse md:table">
                   <thead className="sticky top-0 z-10 bg-white text-[11px] uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-3 py-2 text-left">Catégorie</th>
@@ -1094,7 +1181,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                             onClick={() => openModalForPrev(p)}
                             className={[
                               'rounded-full px-3 py-1.5 text-[11px] font-semibold text-white',
-                              saisieType === 'recette' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-pink-500 hover:bg-pink-400',
+                              'bg-cyan-700 hover:bg-cyan-800',
                             ].join(' ')}
                           >
                             Saisir →
@@ -1114,6 +1201,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 </table>
               </div>
             </div>
+            </>}
 
             {/* Modal PREVU (fond blanc) */}
             <Modal
@@ -1150,9 +1238,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     <div className="mt-2 text-[11px] text-slate-500">Le rattachement au prévisionnel est automatique (previsionnel_id).</div>
                   </div>
 
-                  {statusForm === 'error' && errorForm && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                      {errorForm}
+                  {statusForm === 'error' && (errorForm || errorUpload) && (
+                    <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                      {errorForm || 'La facture n’a pas pu être importée. Réessayez.'}
                       {errorUpload && <div className="mt-1 text-xs text-rose-700">Détail : {errorUpload}</div>}
                     </div>
                   )}
@@ -1160,11 +1248,13 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Mouvement enregistré avec succès.</div>
                   )}
 
-                  <form onSubmit={handleSubmit} className="space-y-4">
+                  <form onSubmit={handleSubmit} aria-busy={statusForm === 'loading'} className="space-y-4">
+                    <p role="status" className="sr-only">{statusForm === 'loading' ? 'Enregistrement du mouvement…' : statusForm === 'success' ? 'Mouvement enregistré.' : ''}</p>
                     <div className="grid gap-3 md:grid-cols-3">
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-700">Date</label>
+                        <label htmlFor="planned-date" className="text-sm font-medium text-slate-700">Date</label>
                         <input
+                          id="planned-date"
                           type="date"
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                           value={date}
@@ -1173,11 +1263,12 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-700">Type</label>
+                        <label htmlFor="planned-type" className="text-sm font-medium text-slate-700">Type</label>
                         <select
+                          id="planned-type"
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                           value={type}
-                          onChange={(e) => setType(e.target.value as BudgetType)}
+                          onChange={(e) => { setType(e.target.value as BudgetType); setSelectedPrevId(''); }}
                         >
                           <option value="depense">Dépense</option>
                           <option value="recette">Recette</option>
@@ -1185,8 +1276,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-700">Montant (€)</label>
+                        <label htmlFor="planned-amount" className="text-sm font-medium text-slate-700">Montant (€)</label>
                         <input
+                          id="planned-amount"
                           type="number"
                           step="0.01"
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
@@ -1199,18 +1291,19 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-700">Catégorie</label>
-                        <input className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none" value={categorie} readOnly />
+                        <label htmlFor="planned-category" className="text-sm font-medium text-slate-700">Catégorie</label>
+                        <input id="planned-category" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none" value={categorie} readOnly />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-slate-700">Désignation</label>
-                        <input className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none" value={libelle} readOnly />
+                        <label htmlFor="planned-designation" className="text-sm font-medium text-slate-700">Désignation</label>
+                        <input id="planned-designation" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none" value={libelle} readOnly />
                       </div>
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Commentaire (optionnel)</label>
+                      <label htmlFor="planned-comment" className="text-sm font-medium text-slate-700">Commentaire (optionnel)</label>
                       <textarea
+                        id="planned-comment"
                         className="min-h-[70px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                         value={commentaire}
                         onChange={(e) => setCommentaire(e.target.value)}
@@ -1219,7 +1312,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-700">Facture (optionnel)</label>
+                      <p className="text-sm font-medium text-slate-700">Facture (optionnel)</p>
 
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -1241,8 +1334,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                         <span className="flex items-center text-[11px] text-slate-500">{factureFile ? `Fichier : ${factureFile.name}` : 'Aucun fichier sélectionné'}</span>
                       </div>
 
-                      <input ref={fileInputUploadRef} type="file" className="hidden" onChange={(e) => setFactureFile(e.target.files?.[0] ?? null)} accept=".pdf,image/*" />
+                      <input aria-label="Importer une facture prévue" ref={fileInputUploadRef} type="file" className="hidden" onChange={(e) => setFactureFile(e.target.files?.[0] ?? null)} accept=".pdf,image/*" />
                       <input
+                        aria-label="Photographier une facture prévue"
                         ref={fileInputCameraRef}
                         type="file"
                         className="hidden"
@@ -1258,7 +1352,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       <button
                         type="submit"
                         disabled={statusForm === 'loading'}
-                        className="inline-flex items-center justify-center rounded-full bg-pink-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center justify-center rounded-xl bg-cyan-700 px-5 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {statusForm === 'loading' ? 'Enregistrement…' : 'Enregistrer'}
                       </button>
@@ -1289,9 +1383,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
               variant="white"
             >
               <div className="space-y-4">
-                {statusForm === 'error' && errorForm && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                    {errorForm}
+                {statusForm === 'error' && (errorForm || errorUpload) && (
+                  <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                    {errorForm || 'La facture n’a pas pu être importée. Réessayez.'}
                     {errorUpload && <div className="mt-1 text-xs text-rose-700">Détail : {errorUpload}</div>}
                   </div>
                 )}
@@ -1299,14 +1393,16 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Mouvement enregistré avec succès.</div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} aria-busy={statusForm === 'loading'} className="space-y-4">
+                  <p role="status" className="sr-only">{statusForm === 'loading' ? 'Enregistrement du mouvement…' : statusForm === 'success' ? 'Mouvement enregistré.' : ''}</p>
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Saison</label>
+                      <label htmlFor="free-season" className="text-sm font-medium text-slate-700">Saison</label>
                       <select
+                        id="free-season"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                         value={saison}
-                        onChange={(e) => setSaison(e.target.value)}
+                        onChange={(e) => { setSaison(e.target.value); setSelectedPrevId(''); }}
                       >
                         {SAISONS.map((s) => (
                           <option key={s} value={s}>
@@ -1317,8 +1413,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Date</label>
+                      <label htmlFor="free-date" className="text-sm font-medium text-slate-700">Date</label>
                       <input
+                        id="free-date"
                         type="date"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                         value={date}
@@ -1327,11 +1424,12 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Type</label>
+                      <label htmlFor="free-type" className="text-sm font-medium text-slate-700">Type</label>
                       <select
+                        id="free-type"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                         value={type}
-                        onChange={(e) => setType(e.target.value as BudgetType)}
+                        onChange={(e) => { setType(e.target.value as BudgetType); setSelectedPrevId(''); }}
                       >
                         <option value="depense">Dépense</option>
                         <option value="recette">Recette</option>
@@ -1341,8 +1439,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Catégorie</label>
+                      <label htmlFor="free-category" className="text-sm font-medium text-slate-700">Catégorie</label>
                       <select
+                        id="free-category"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
                         value={categorie}
                         onChange={(e) => setCategorie(e.target.value)}
@@ -1358,8 +1457,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Désignation</label>
+                      <label htmlFor="free-designation" className="text-sm font-medium text-slate-700">Désignation</label>
                       <select
+                        id="free-designation"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
                         value={libelle}
                         onChange={(e) => setLibelle(e.target.value)}
@@ -1378,8 +1478,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Montant (€)</label>
+                      <label htmlFor="free-amount" className="text-sm font-medium text-slate-700">Montant (€)</label>
                       <input
+                        id="free-amount"
                         type="number"
                         step="0.01"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
@@ -1390,8 +1491,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-700">Commentaire (optionnel)</label>
+                      <label htmlFor="free-comment" className="text-sm font-medium text-slate-700">Commentaire (optionnel)</label>
                       <input
+                        id="free-comment"
                         type="text"
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500"
                         value={commentaire}
@@ -1402,7 +1504,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-700">Facture (optionnel)</label>
+                    <p className="text-sm font-medium text-slate-700">Facture (optionnel)</p>
 
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -1424,8 +1526,9 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       <span className="flex items-center text-[11px] text-slate-500">{factureFile ? `Fichier : ${factureFile.name}` : 'Aucun fichier sélectionné'}</span>
                     </div>
 
-                    <input ref={fileInputUploadRef} type="file" className="hidden" onChange={(e) => setFactureFile(e.target.files?.[0] ?? null)} accept=".pdf,image/*" />
+                    <input aria-label="Importer une facture non prévue" ref={fileInputUploadRef} type="file" className="hidden" onChange={(e) => setFactureFile(e.target.files?.[0] ?? null)} accept=".pdf,image/*" />
                     <input
+                      aria-label="Photographier une facture non prévue"
                       ref={fileInputCameraRef}
                       type="file"
                       className="hidden"
@@ -1441,7 +1544,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     <button
                       type="submit"
                       disabled={statusForm === 'loading'}
-                      className="inline-flex items-center justify-center rounded-full bg-pink-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-xl bg-cyan-700 px-5 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {statusForm === 'loading' ? 'Enregistrement…' : 'Enregistrer'}
                     </button>
@@ -1467,16 +1570,16 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
         {/* TAB 2 - MOVES (full width + delete + popup edit facture) */}
         {activeTab === 'moves' && (
-          <section className="w-full rounded-2xl border border-white/10 bg-slate-900/70 p-5 shadow-xl shadow-black/40 backdrop-blur">
+          <section className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-white">Mouvements</h2>
-                <p className="mt-1 text-xs text-slate-300">
-                  {statusLoad === 'loading' ? 'Chargement…' : `${lignesFiltrees.length} mouvements (filtrés)`}
-                  {Number.isFinite(displayLimit) && (
+                <h2 className="text-lg font-semibold text-slate-950">Mouvements</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {statusLoad !== 'success' ? (statusLoad === 'error' ? 'Mouvements indisponibles' : 'Chargement…') : `${lignesFiltrees.length} mouvements (filtrés)`}
+                  {statusLoad === 'success' && Number.isFinite(displayLimit) && (
                     <>
                       {' '}
-                      · <span className="text-slate-200">affichage</span> : {lignesAffichees.length} / {lignesFiltrees.length}
+                      · affichage : {lignesAffichees.length} / {lignesFiltrees.length}
                     </>
                   )}
                 </p>
@@ -1485,38 +1588,31 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('new')}
-                  className="rounded-full bg-pink-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
-                >
-                  + Saisie
-                </button>
-                <button
-                  type="button"
                   onClick={resetFilters}
-                  className="rounded-full bg-slate-800/60 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700/60"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  Reset filtres
+                  Réinitialiser les filtres
                 </button>
               </div>
             </div>
 
             {/* Filters */}
-            <div className="mb-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Pill tone="sky">Astuces</Pill>
-                <span className="text-[11px] text-slate-300">Clique une ligne → popup de modification + facture. Corbeille = supprimer (avec archivage).</span>
+                <span className="text-sm text-slate-600">Détails / facture : consulter et ajouter ou remplacer le justificatif. La suppression est confirmée et archivée.</span>
               </div>
 
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-300">Saison</label>
+                  <label htmlFor="moves-season" className="text-sm font-medium text-slate-700">Saison</label>
                   <select
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                    id="moves-season"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                     value={filterSeason}
                     onChange={(e) => setFilterSeason(e.target.value)}
                   >
                     <option value="toutes">Toutes</option>
-                    {saisonsDisponibles.map((s) => (
+                    {Array.from(new Set([...saisonsDisponibles, ...(filterSeason !== 'toutes' ? [filterSeason] : [])])).map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
@@ -1525,9 +1621,10 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-300">Type</label>
+                  <label htmlFor="moves-type" className="text-sm font-medium text-slate-700">Type</label>
                   <select
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                    id="moves-type"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                     value={filterType}
                     onChange={(e) => setFilterType(e.target.value as 'tous' | BudgetType)}
                   >
@@ -1538,14 +1635,15 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-300">Catégorie</label>
+                  <label htmlFor="moves-category" className="text-sm font-medium text-slate-700">Catégorie</label>
                   <select
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                    id="moves-category"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                     value={filterCategory}
                     onChange={(e) => setFilterCategory(e.target.value)}
                   >
                     <option value="toutes">Toutes</option>
-                    {categoriesDisponibles.map((cat) => (
+                    {Array.from(new Set([...categoriesDisponibles, ...(filterCategory !== 'toutes' ? [filterCategory] : [])])).map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
@@ -1554,11 +1652,12 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-300">Recherche</label>
+                  <label htmlFor="moves-search" className="text-sm font-medium text-slate-700">Recherche</label>
                   <input
+                    id="moves-search"
                     type="text"
                     placeholder="Libellé, catégorie, commentaire…"
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
@@ -1570,18 +1669,20 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                   <button
                     type="button"
                     onClick={() => setOnlyMissingInvoices((v) => !v)}
+                    aria-pressed={onlyMissingInvoices}
                     className={[
                       'rounded-full px-4 py-2 text-xs font-semibold transition',
-                      onlyMissingInvoices ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60',
+                      onlyMissingInvoices ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100',
                     ].join(' ')}
                   >
                     {onlyMissingInvoices ? '✓ Factures manquantes' : 'Factures manquantes'}
                   </button>
 
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/50 px-3 py-2 text-xs">
-                    <span className="text-slate-300">Afficher</span>
+                  <div className="flex items-center gap-2 text-sm">
+                    <label htmlFor="moves-limit" className="text-slate-700">Afficher</label>
                     <select
-                      className="rounded-lg border border-white/10 bg-slate-950/60 px-2 py-1 text-xs outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                      id="moves-limit"
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                       value={String(displayLimit)}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1595,21 +1696,47 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       <option value="Infinity">Tout</option>
                     </select>
                   </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <label htmlFor="moves-sort">Trier</label>
+                    <select id="moves-sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2">
+                      <option value="date-desc">Date : récentes d’abord</option><option value="date-asc">Date : anciennes d’abord</option>
+                      <option value="amount-desc">Montant décroissant</option><option value="amount-asc">Montant croissant</option>
+                      <option value="category-asc">Catégorie A → Z</option><option value="category-desc">Catégorie Z → A</option>
+                      <option value="designation-asc">Désignation A → Z</option><option value="designation-desc">Désignation Z → A</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Pill tone="emerald">Recettes {formatCurrency(totalRecettes)}</Pill>
-                  <Pill tone="rose">Dépenses {formatCurrency(totalDepenses)}</Pill>
-                  <Pill tone="slate">Solde {formatCurrency(solde)}</Pill>
+                  <Pill tone="emerald">Recettes {displayTotal(totalRecettes)}</Pill>
+                  <Pill tone="rose">Dépenses {displayTotal(totalDepenses)}</Pill>
+                  <Pill tone="slate">Solde {displayTotal(solde)}</Pill>
                 </div>
               </div>
             </div>
 
             {/* Table FULL WIDTH */}
-            <div className="overflow-hidden rounded-2xl border border-white/5 bg-slate-950/60">
-              <div className="max-h-[640px] overflow-auto text-xs">
-                <table className="min-w-full border-collapse">
-                  <thead className="sticky top-0 z-10 bg-slate-900/90 text-[11px] uppercase tracking-wide text-slate-300">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div id="budget-moves-list" className="max-h-[640px] overflow-auto text-sm">
+                {statusLoad === 'success' && <div className="divide-y divide-slate-200 md:hidden">
+                  {lignesAffichees.map((line) => (
+                    <article key={line.id} className="space-y-3 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0"><p className="text-xs text-slate-600">{formatDate(line.date)} · {line.saison}</p><h3 className="mt-1 break-words font-semibold">{line.designation || 'Sans désignation'}</h3><p className="mt-1 break-words text-sm text-slate-600">{line.categorie || 'Sans catégorie'}</p></div>
+                        <strong className={`shrink-0 ${line.type === 'recette' ? 'text-emerald-800' : 'text-rose-800'}`}>{formatCurrency(Number(line.montant))}</strong>
+                      </div>
+                      <div className="flex flex-wrap gap-2"><Pill tone={line.type === 'recette' ? 'emerald' : 'rose'}>{line.type === 'recette' ? 'Recette' : 'Dépense'}</Pill>{!line.facture_url && <Pill tone="amber">Facture manquante</Pill>}{line.commentaire && <Pill>Note</Pill>}</div>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => openMovement(line)} className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 font-semibold text-cyan-800">Détails / facture</button>
+                        {line.facture_url && <a href={line.facture_url} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-xl border border-slate-300 px-3 py-2 font-semibold">Ouvrir la facture ↗</a>}
+                        <button type="button" onClick={() => handleDeleteLigne(line)} aria-label={`Supprimer ${line.designation || 'le mouvement'} du ${formatDate(line.date)}`} className="rounded-xl border border-rose-200 px-3 py-2 text-rose-800">Supprimer</button>
+                      </div>
+                    </article>
+                  ))}
+                  {!lignesAffichees.length && <p className="p-5 text-slate-600">Aucun mouvement ne correspond aux filtres sélectionnés.</p>}
+                </div>}
+                <table className="hidden min-w-full border-collapse md:table">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
                     <tr>
                       <th className="px-3 py-2 text-left">Date</th>
                       <th className="px-3 py-2 text-left">Saison</th>
@@ -1618,32 +1745,26 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       <th className="px-3 py-2 text-left">Désignation</th>
                       <th className="px-3 py-2 text-right">Montant</th>
                       <th className="px-3 py-2 text-center w-[90px]">Facture</th>
-                      <th className="px-3 py-2 text-center"> </th>
+                      <th className="px-3 py-2 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {lignesAffichees.map((l, idx) => {
+                    {statusLoad === 'success' && lignesAffichees.map((l, idx) => {
                       const hasInvoice = !!l.facture_url;
 
                       return (
                         <tr
                           key={l.id}
-                          onClick={() => {
-                            setSelectedLigneId(l.id);
-                            setStatusFactureEdit('idle');
-                            setErrorFactureEdit(null);
-                            setFactureFileEdit(null);
-                            setOpenEditModal(true);
-                          }}
-                          className={[idx % 2 === 0 ? 'bg-slate-900/40' : 'bg-slate-900/10', 'cursor-pointer transition hover:bg-slate-800/30'].join(' ')}
-                          title="Cliquer pour modifier / ajouter la facture"
+                          onClick={() => openMovement(l)}
+                          className={[idx % 2 === 0 ? 'bg-white' : 'bg-slate-50', 'cursor-pointer transition hover:bg-cyan-50'].join(' ')}
+                          title="Consulter les détails / gérer la facture"
                         >
-                          <td className="whitespace-nowrap px-3 py-2 text-slate-100">{formatDate(l.date)}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-slate-200/80">{l.saison}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-slate-800">{formatDate(l.date)}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-slate-600">{l.saison}</td>
                           <td className="px-3 py-2">
                             <Pill tone={l.type === 'recette' ? 'emerald' : 'rose'}>{l.type === 'recette' ? 'Recette' : 'Dépense'}</Pill>
                           </td>
-                          <td className="px-3 py-2 text-slate-200/90">
+                          <td className="px-3 py-2 text-slate-700">
                             <div className="flex items-center justify-between gap-2">
                               <span className="min-w-0 truncate">{l.categorie || '-'}</span>
                               {!hasInvoice && (
@@ -1653,7 +1774,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                               )}
                             </div>
                           </td>              
-                          <td className="px-3 py-2 text-slate-100">
+                          <td className="px-3 py-2 text-slate-900">
                             <div className="flex items-center justify-between gap-2">
                               <span className="min-w-0 truncate">
                                 {l.designation || '-'}
@@ -1667,7 +1788,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                             </div>
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">
-                            <span className={l.type === 'recette' ? 'text-emerald-300' : 'text-rose-300'}>{formatCurrency(Number(l.montant || 0))}</span>
+                            <span className={l.type === 'recette' ? 'text-emerald-800' : 'text-rose-800'}>{formatCurrency(Number(l.montant || 0))}</span>
                           </td>
                           <td className="px-3 py-2 text-center w-[90px]">
                             {l.facture_url ? (
@@ -1675,7 +1796,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                                 href={l.facture_url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex items-center rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-50 hover:bg-slate-700"
+                                className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 Voir
@@ -1687,13 +1808,15 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
 
                           {/* Corbeille */}
                           <td className="px-3 py-2 text-center">
+                            <button type="button" onClick={(event) => { event.stopPropagation(); openMovement(l); }} className="rounded-xl px-3 py-2 font-semibold text-cyan-800">Détails / facture</button>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteLigne(l);
                               }}
-                              className="inline-flex items-center justify-center rounded-full bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/25"
+                              className="inline-flex items-center justify-center rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100"
+                              aria-label={`Supprimer ${l.designation || 'le mouvement'} du ${formatDate(l.date)}`}
                               title="Supprimer cette ligne"
                             >
                               🗑️
@@ -1703,7 +1826,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                       );
                     })}
 
-                    {lignesAffichees.length === 0 && (
+                    {statusLoad === 'success' && lignesAffichees.length === 0 && (
                       <tr>
                         <td colSpan={8} className="px-4 py-8 text-center text-xs text-slate-400">
                           Aucun mouvement ne correspond aux filtres sélectionnés.
@@ -1714,35 +1837,35 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                 </table>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 bg-slate-950/80 px-4 py-3 text-[11px] text-slate-300">
+              {statusLoad === 'success' && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
                 <span>
                   {lignesAffichees.length} affichées · {lignesFiltrees.length} filtrées
                   {missingInvoicesCount > 0 && (
                     <>
                       {' '}
-                      · <span className="text-amber-200">{missingInvoicesCount} sans facture</span>
+                      · <span className="text-amber-800">{missingInvoicesCount} sans facture</span>
                     </>
                   )}
                 </span>
 
                 <div className="flex flex-wrap gap-3 text-right">
                   <span>
-                    Recettes : <span className="font-semibold text-emerald-300">{formatCurrency(totalRecettes)}</span>
+                    Recettes : <span className="font-semibold text-emerald-800">{formatCurrency(totalRecettes)}</span>
                   </span>
                   <span>
-                    Dépenses : <span className="font-semibold text-rose-300">{formatCurrency(totalDepenses)}</span>
+                    Dépenses : <span className="font-semibold text-rose-800">{formatCurrency(totalDepenses)}</span>
                   </span>
                   <span>
-                    Solde : <span className="font-semibold text-slate-50">{formatCurrency(solde)}</span>
+                    Solde : <span className="font-semibold text-slate-900">{formatCurrency(solde)}</span>
                   </span>
                 </div>
-              </div>
+              </div>}
             </div>
 
             {/* Popup EDIT (fond blanc) */}
             <Modal
               open={openEditModal}
-              title={selectedLigne ? 'Modifier le mouvement' : 'Modifier le mouvement'}
+              title="Détails du mouvement · facture"
               subtitle={selectedLigne ? `${formatDate(selectedLigne.date)} • ${selectedLigne.saison} • ${selectedLigne.categorie || '—'} • ${selectedLigne.designation || '—'}` : undefined}
               onClose={() => {
                 setOpenEditModal(false);
@@ -1820,27 +1943,28 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
                     <div className="text-[11px] uppercase tracking-wide text-slate-500">Facture sur ce mouvement</div>
 
                     <div className="mt-3 flex flex-col gap-2">
-                      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
+                      <label htmlFor="edit-invoice" className="text-sm font-medium text-slate-800">Importer une facture (PDF ou image)</label>
+                      <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-800">
                         <span className="max-w-[220px] truncate">{factureFileEdit ? factureFileEdit.name : 'Choisir une facture (PDF / image)'}</span>
-                        <span className="rounded-full bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white">Parcourir</span>
-                        <input type="file" className="hidden" onChange={(e) => setFactureFileEdit(e.target.files?.[0] ?? null)} accept=".pdf,image/*" />
-                      </label>
+                        <input id="edit-invoice" type="file" className="mt-2 block w-full min-w-0 text-sm file:mr-2 file:rounded-lg file:border-0 file:bg-cyan-50 file:p-3 file:text-cyan-800" onChange={(e) => setFactureFileEdit(e.target.files?.[0] ?? null)} accept=".pdf,image/*" />
+                      </div>
 
                       <button
                         type="button"
                         disabled={!factureFileEdit || statusFactureEdit === 'loading'}
                         onClick={handleUploadFactureForSelected}
-                        className="inline-flex items-center justify-center rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-sky-500/20 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center justify-center rounded-xl bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {statusFactureEdit === 'loading' ? 'Upload…' : selectedLigne?.facture_url ? 'Remplacer la facture' : 'Ajouter la facture'}
                       </button>
 
                       {statusFactureEdit === 'success' && (
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Facture enregistrée.</div>
+                        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Facture enregistrée.</div>
                       )}
                       {statusFactureEdit === 'error' && errorFactureEdit && (
-                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{errorFactureEdit}</div>
+                        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{errorFactureEdit}</div>
                       )}
+                      <p role="status" className="sr-only">{statusFactureEdit === 'loading' ? 'Import de la facture en cours…' : ''}</p>
                     </div>
                   </div>
 

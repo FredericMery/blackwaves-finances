@@ -100,19 +100,83 @@ export default function PrevisionnelPage() {
   // Montants presets : clé -> montant
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   // Meta presets : clé -> {categorie, designation} (pour save/export sans perdre les libellés)
-  const [meta, setMeta] = useState<Record<string, { categorie: string; designation: string }>>({});
+  const [meta, setMeta] = useState<Record<string, { categorie: string; designation: string; id?: string; commentaire?: string | null; type?: BudgetType }>>({});
+  const [savedRows, setSavedRows] = useState<PrevisionnelDbRow[]>([]);
+  const [saveRevision, setSaveRevision] = useState(0);
 
   // Lignes custom (ajout libre)
   const [customLines, setCustomLines] = useState<CustomLine[]>([]);
 
   // Limitation d’affichage des désignations dans l’onglet (utile si 200+)
   const BASE_LIMIT = 50;
-  const STEP_LIMIT = 50;
   const [limit, setLimit] = useState<number>(BASE_LIMIT);
   const [search, setSearch] = useState<string>('');
+  const [uiReady, setUiReady] = useState(false);
+  const restoredCategoryRef = useRef<string | null>(null);
+  const restoredScrollRef = useRef<number | null>(null);
 
   // Pour éviter setState après un changement rapide (sécurité)
   const loadTokenRef = useRef(0);
+  const designationTokenRef = useRef(0);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('bw-forecast-view') || 'null');
+      if (saved && typeof saved === 'object') {
+        if (SAISONS.includes(saved.saison)) setSaison(saved.saison);
+        if (typeof saved.category === 'string') restoredCategoryRef.current = saved.category;
+        if (typeof saved.search === 'string') setSearch(saved.search);
+        if (Number.isInteger(saved.limit) && saved.limit >= BASE_LIMIT) setLimit(saved.limit);
+        if (Number.isFinite(saved.scroll) && saved.scroll >= 0) restoredScrollRef.current = saved.scroll;
+      }
+    } catch {
+      // La navigation reste disponible si le stockage du navigateur est bloqué.
+    }
+    setUiReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!uiReady) return;
+    try {
+      sessionStorage.setItem('bw-forecast-view', JSON.stringify({
+        saison, category: activeCatId, search, limit,
+        scroll: restoredScrollRef.current ?? window.scrollY,
+      }));
+    } catch {
+      // Le stockage des filtres est facultatif.
+    }
+  }, [uiReady, saison, activeCatId, search, limit]);
+
+  useEffect(() => {
+    if (statusLoad !== 'success' || desigsLoading || restoredScrollRef.current === null) return;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo(0, restoredScrollRef.current || 0);
+      restoredScrollRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [statusLoad, desigsLoading, activeCatId]);
+
+  useEffect(() => {
+    let scrollPosition = window.scrollY;
+    function trackScroll() {
+      scrollPosition = window.scrollY;
+    }
+    function rememberScroll() {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem('bw-forecast-view') || '{}');
+        sessionStorage.setItem('bw-forecast-view', JSON.stringify({ ...saved, scroll: scrollPosition }));
+      } catch {
+        // La position de lecture est un confort, pas une condition de saisie.
+      }
+    }
+    window.addEventListener('scroll', trackScroll, { passive: true });
+    window.addEventListener('pagehide', rememberScroll);
+    return () => {
+      rememberScroll();
+      window.removeEventListener('scroll', trackScroll);
+      window.removeEventListener('pagehide', rememberScroll);
+    };
+  }, []);
 
   // 1) Charger categories (1 fois)
   useEffect(() => {
@@ -147,7 +211,7 @@ export default function PrevisionnelPage() {
 
         // Définit l’onglet par défaut si pas déjà set
         if (!activeCatId && cats.length) {
-          setActiveCatId(cats[0].id);
+          setActiveCatId(cats.find((cat) => cat.id === restoredCategoryRef.current)?.id || cats[0].id);
         }
       } catch (e) {
         console.error('Erreur inattendue categories', e);
@@ -182,27 +246,19 @@ export default function PrevisionnelPage() {
       const token = ++loadTokenRef.current;
 
       try {
-        const { data, error: err } = await supabase
-          .from('budget_previsionnel')
-          .select('*')
-          .eq('saison', saison);
-
-        if (token !== loadTokenRef.current) return;
-
-        if (err) {
-          console.error('Erreur chargement budget_previsionnel', err);
-          setError('Impossible de charger le prévisionnel.');
-          setStatusLoad('error');
-          setAmounts({});
-          setMeta({});
-          setCustomLines([]);
-          return;
+        const rows: PrevisionnelDbRow[] = [];
+        for (let start = 0; ; start += 1000) {
+          const { data, error: err } = await supabase
+            .from('budget_previsionnel').select('*').eq('saison', saison)
+            .order('id').range(start, start + 999);
+          if (token !== loadTokenRef.current) return;
+          if (err) throw err;
+          rows.push(...((data || []) as PrevisionnelDbRow[]));
+          if (!data || data.length < 1000) break;
         }
 
-        const rows = (data || []) as PrevisionnelDbRow[];
-
         const newAmounts: Record<string, number> = {};
-        const newMeta: Record<string, { categorie: string; designation: string }> = {};
+        const newMeta: typeof meta = {};
         const newCustom: CustomLine[] = [];
 
         rows.forEach((r) => {
@@ -228,20 +284,28 @@ export default function PrevisionnelPage() {
             });
           } else {
             const k = presetKey(saison, catLabel, desLabel);
-            newAmounts[k] = Number(r.montant_prevu || 0);
-            newMeta[k] = { categorie: catLabel, designation: desLabel };
+            if (newMeta[k]) {
+              newCustom.push({
+                ...r,
+                uid: `db-${r.id}`,
+                montant_prevu: Number(r.montant_prevu || 0),
+                isCustom: true,
+              });
+            } else {
+              newAmounts[k] = Number(r.montant_prevu || 0);
+              newMeta[k] = { categorie: catLabel, designation: desLabel, id: r.id, commentaire: r.commentaire, type: r.type };
+            }
           }
         });
 
         setAmounts(newAmounts);
         setMeta(newMeta);
         setCustomLines(newCustom);
+        setSavedRows(rows);
         setStatusLoad('success');
 
         // reset onglet et ui
         if (!activeCatId && categories.length) setActiveCatId(categories[0].id);
-        setLimit(BASE_LIMIT);
-        setSearch('');
       } catch (e) {
         if (token !== loadTokenRef.current) return;
         console.error('Erreur inattendue load previsionnel', e);
@@ -252,16 +316,20 @@ export default function PrevisionnelPage() {
 
     loadPrevisionnel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saison, categories]);
+  }, [saison, categories, saveRevision]);
 
   // 3) Charger désignations UNIQUEMENT pour la catégorie active
   useEffect(() => {
     const loadDesigsForActive = async () => {
+      const token = ++designationTokenRef.current;
       if (!activeCatId) return;
-      if (desigsCache[activeCatId]) return; // déjà en cache
+      const cacheKey = `${saison}__${activeCatId}`;
+      if (desigsCache[cacheKey]) {
+        setDesigsLoading(false);
+        return;
+      }
 
       setDesigsLoading(true);
-      const token = ++loadTokenRef.current;
 
       try {
         const { data, error: err } = await supabase
@@ -272,11 +340,11 @@ export default function PrevisionnelPage() {
           .or(`saison.is.null,saison.eq.${saison}`)
           .order('ordre', { ascending: true });
 
-        if (token !== loadTokenRef.current) return;
+        if (token !== designationTokenRef.current) return;
 
         if (err) {
           console.error('Erreur chargement budget_designations', err);
-          setDesigsCache((prev) => ({ ...prev, [activeCatId]: [] }));
+          setError('Impossible de charger les désignations de cette catégorie.');
           setDesigsLoading(false);
           return;
         }
@@ -289,12 +357,12 @@ export default function PrevisionnelPage() {
           return (a.label || '').localeCompare(b.label || '');
         });
 
-        setDesigsCache((prev) => ({ ...prev, [activeCatId]: arr }));
+        setDesigsCache((prev) => ({ ...prev, [cacheKey]: arr }));
         setDesigsLoading(false);
       } catch (e) {
-        if (token !== loadTokenRef.current) return;
+        if (token !== designationTokenRef.current) return;
         console.error('Erreur inattendue designations', e);
-        setDesigsCache((prev) => ({ ...prev, [activeCatId]: [] }));
+        setError('Impossible de charger les désignations de cette catégorie.');
         setDesigsLoading(false);
       }
     };
@@ -310,8 +378,8 @@ export default function PrevisionnelPage() {
 
   const activeDesigs = useMemo(() => {
     if (!activeCatId) return [];
-    return desigsCache[activeCatId] || [];
-  }, [activeCatId, desigsCache]);
+    return desigsCache[`${saison}__${activeCatId}`] || [];
+  }, [activeCatId, saison, desigsCache]);
 
   /**
    * ✅ FIX IMPORTANT :
@@ -381,6 +449,7 @@ export default function PrevisionnelPage() {
   }, [customLines, activeCategory]);
 
   const setPresetAmount = (catLabel: string, designationLabel: string, raw: string) => {
+    setStatusSave('idle');
     const numeric = Number((raw || '').replace(',', '.'));
     const v = Number.isNaN(numeric) ? 0 : numeric;
 
@@ -398,10 +467,12 @@ export default function PrevisionnelPage() {
   };
 
   const updateCustomLine = (uid: string, patch: Partial<CustomLine>) => {
+    setStatusSave('idle');
     setCustomLines((prev) => prev.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
   };
 
   const addCustomLine = (cat: CategoryRow) => {
+    setStatusSave('idle');
     setCustomLines((prev) => [
       ...prev,
       {
@@ -417,6 +488,7 @@ export default function PrevisionnelPage() {
   };
 
   const deleteCustomLine = (uid: string) => {
+    setStatusSave('idle');
     setCustomLines((prev) => prev.filter((l) => l.uid !== uid));
   };
 
@@ -430,7 +502,7 @@ export default function PrevisionnelPage() {
       const parts = k.split('__');
       const catNorm = parts[1] || '';
       const catRef = categoryByLabelNorm.get(catNorm);
-      const type: BudgetType = catRef?.type || 'depense';
+      const type: BudgetType = meta[k]?.type || catRef?.type || 'depense';
       if (type === 'recette') recettes += montant;
       else depenses += montant;
     }
@@ -442,7 +514,7 @@ export default function PrevisionnelPage() {
     });
 
     return { totalRecettes: recettes, totalDepenses: depenses, solde: recettes - depenses };
-  }, [amounts, customLines, categoryByLabelNorm]);
+  }, [amounts, customLines, categoryByLabelNorm, meta]);
 
   const totalActiveCategory = useMemo(() => {
     if (!activeCategory) return 0;
@@ -465,7 +537,7 @@ export default function PrevisionnelPage() {
 
   // Export/save : on travaille uniquement sur les lignes > 0
   const exportRows = useMemo(() => {
-    const out: Array<{ saison: string; type: BudgetType; categorie: string; designation: string; montant: number }> = [];
+    const out: Array<{ id?: string; commentaire?: string | null; saison: string; type: BudgetType; categorie: string; designation: string; montant: number }> = [];
 
     for (const [k, montant] of Object.entries(amounts)) {
       const v = Number(montant || 0);
@@ -475,9 +547,11 @@ export default function PrevisionnelPage() {
       if (!m) continue;
 
       const catRef = categoryByLabelNorm.get(norm(m.categorie));
-      const type: BudgetType = catRef?.type || 'depense';
+      const type: BudgetType = m.type || catRef?.type || 'depense';
 
       out.push({
+        id: m.id,
+        commentaire: m.commentaire,
         saison,
         type,
         categorie: m.categorie,
@@ -490,6 +564,8 @@ export default function PrevisionnelPage() {
       const v = Number(l.montant_prevu || 0);
       if (v <= 0) return;
       out.push({
+        id: l.id,
+        commentaire: l.commentaire,
         saison,
         type: l.type,
         categorie: (l.categorie || '').trim() || 'Sans catégorie',
@@ -511,44 +587,63 @@ export default function PrevisionnelPage() {
   }, [amounts, meta, customLines, saison, categoryByLabelNorm]);
 
   const handleSubmit = async () => {
+    if (statusLoad !== 'success' || statusSave === 'loading') return;
     setStatusSave('loading');
     setError(null);
 
     try {
-      const { error: deleteError } = await supabase
-        .from('budget_previsionnel')
-        .delete()
-        .eq('saison', saison);
-
-      if (deleteError) {
-        console.error('Erreur suppression prévisionnel', deleteError);
-        setError("Impossible d'écraser le prévisionnel existant.");
-        setStatusSave('error');
-        return;
-      }
-
-      const rowsToInsert = exportRows.map((r) => ({
+      const positiveRows = exportRows.map((r) => ({
+        ...(r.id ? { id: r.id } : {}),
         saison: r.saison,
         type: r.type,
         categorie: r.categorie,
         designation: r.designation,
         montant_prevu: r.montant,
+        commentaire: r.commentaire ?? null,
       }));
-
-      if (rowsToInsert.length === 0) {
-        setStatusSave('success');
-        return;
+      const retainedIds = new Set(exportRows.flatMap((r) => r.id ? [r.id] : []));
+      const removedRows = savedRows.filter((r) => !retainedIds.has(r.id));
+      const linkedIds = new Set<string>();
+      if (removedRows.length) {
+        for (let start = 0; ; start += 1000) {
+          const { data: links, error: linksError } = await supabase
+            .from('budget_lignes')
+            .select('id, previsionnel_id')
+            .in('previsionnel_id', removedRows.map((r) => r.id))
+            .order('id').range(start, start + 999);
+          if (linksError) throw linksError;
+          for (const link of links || []) {
+            if (link.previsionnel_id) linkedIds.add(String(link.previsionnel_id));
+          }
+          if (!links || links.length < 1000) break;
+        }
       }
-
-      const { error: insertError } = await supabase.from('budget_previsionnel').insert(rowsToInsert);
-      if (insertError) {
-        console.error('Erreur insertion prévisionnel', insertError);
-        setError("Impossible d'enregistrer le prévisionnel.");
-        setStatusSave('error');
-        return;
+      const existingRows = positiveRows.filter((r) => r.id);
+      // Un poste à zéro déjà utilisé reste identifiable par ses mouvements.
+      const linkedZeroRows = removedRows.filter((r) => linkedIds.has(String(r.id)))
+        .map((r) => ({
+          id: r.id, saison: r.saison, type: r.type, categorie: r.categorie,
+          designation: r.designation, montant_prevu: 0, commentaire: r.commentaire ?? null,
+        }));
+      if (existingRows.length || linkedZeroRows.length) {
+        const { error: updateError } = await supabase.from('budget_previsionnel')
+          .upsert([...existingRows, ...linkedZeroRows], { onConflict: 'id' });
+        if (updateError) throw updateError;
+      }
+      const removableIds = removedRows.filter((r) => !linkedIds.has(String(r.id))).map((r) => r.id);
+      if (removableIds.length) {
+        const { error: deleteError } = await supabase.from('budget_previsionnel')
+          .delete().eq('saison', saison).in('id', removableIds);
+        if (deleteError) throw deleteError;
+      }
+      const newRows = positiveRows.filter((r) => !r.id);
+      if (newRows.length) {
+        const { error: insertError } = await supabase.from('budget_previsionnel').insert(newRows);
+        if (insertError) throw insertError;
       }
 
       setStatusSave('success');
+      setSaveRevision((revision) => revision + 1);
     } catch (e) {
       console.error('Erreur save', e);
       setError("Une erreur inattendue s'est produite.");
@@ -570,7 +665,9 @@ export default function PrevisionnelPage() {
         import('jspdf-autotable'),
       ]);
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' }) as InstanceType<typeof jsPDF> & {
+        lastAutoTable?: { finalY: number };
+      };
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const marginX = 40;
@@ -638,7 +735,7 @@ export default function PrevisionnelPage() {
           margin: { left: marginX, right: marginX },
         });
 
-        const finalY = (doc as any).lastAutoTable?.finalY || cursorY + 80;
+        const finalY = doc.lastAutoTable?.finalY || cursorY + 80;
         cursorY = finalY + 18;
       }
 
@@ -666,40 +763,43 @@ export default function PrevisionnelPage() {
 
   // Onglets : dépenses rouge / recettes vert (même inactifs)
   const tabClass = (active: boolean, type: BudgetType) => {
-    const base = 'rounded-full px-3 py-1 text-[11px] font-semibold border transition whitespace-nowrap';
+    const base = 'rounded-xl px-3 py-2 text-sm font-semibold border transition text-left';
 
     if (active) {
       return type === 'depense'
-        ? `${base} border-rose-500/45 bg-rose-900/30 text-rose-100`
-        : `${base} border-emerald-500/45 bg-emerald-900/30 text-emerald-100`;
+        ? `${base} border-rose-300 bg-rose-50 text-rose-900`
+        : `${base} border-emerald-300 bg-emerald-50 text-emerald-900`;
     }
 
     return type === 'depense'
-      ? `${base} border-rose-500/25 bg-rose-950/25 text-rose-200 hover:bg-rose-950/40`
-      : `${base} border-emerald-500/25 bg-emerald-950/25 text-emerald-200 hover:bg-emerald-950/40`;
+      ? `${base} border-slate-200 bg-white text-slate-700 hover:bg-slate-50`
+      : `${base} border-slate-200 bg-white text-slate-700 hover:bg-slate-50`;
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="mx-auto max-w-6xl px-4 pb-16 pt-10">
+    <div className="text-slate-950">
+      <div className="mx-auto max-w-6xl pb-10">
         {/* Header */}
-        <header className="mb-6 flex flex-col gap-3 border-b border-white/5 pb-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-400">
-            Espace bureau • finances
+        <header className="mb-6 flex flex-col gap-3 border-b border-slate-200 pb-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-800">
+            Préparer la saison
           </div>
-          <h1 className="text-3xl font-bold text-white md:text-4xl">Prévisionnel budgétaire</h1>
-          <p className="max-w-2xl text-sm text-slate-300">
-            Version onglets (anti-crash) : 1 catégorie affichée à la fois + désignations chargées à la demande.
+          <h1 className="text-3xl font-bold text-slate-950 md:text-4xl">Prévisionnel budgétaire</h1>
+          <p className="max-w-2xl text-sm text-slate-600">
+            Choisissez une catégorie, renseignez les montants attendus, puis enregistrez la saison.
+            Les totaux portent sur toutes les catégories, même celles qui ne sont pas affichées.
           </p>
         </header>
 
         {/* Consolidé + actions top */}
         <section className="mb-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-sky-500/40 bg-gradient-to-br from-sky-900/50 via-slate-900/40 to-slate-950/80 p-4 shadow-lg shadow-sky-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-sky-300">Saison</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <label htmlFor="forecast-season" className="text-xs font-semibold uppercase tracking-wide text-slate-600">Saison</label>
             <div className="mt-2 flex items-center gap-3">
               <select
-                className="w-36 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-sm text-slate-50 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                id="forecast-season"
+                disabled={statusSave === 'loading'}
+                className="w-40 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 disabled:opacity-60"
                 value={saison}
                 onChange={(e) => {
                   setSaison(e.target.value);
@@ -714,8 +814,8 @@ export default function PrevisionnelPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-[11px] text-slate-300">
-                {statusLoad === 'loading' ? 'Chargement…' : 'OK'}
+              <span role="status" className="text-xs text-slate-600">
+                {statusLoad === 'loading' ? 'Chargement…' : statusLoad === 'success' ? 'Données chargées' : statusLoad === 'error' ? 'Données indisponibles' : 'En attente'}
               </span>
             </div>
 
@@ -723,8 +823,8 @@ export default function PrevisionnelPage() {
               <button
                 type="button"
                 onClick={handleExportPdf}
-                disabled={statusPdf === 'loading' || exportRows.length === 0}
-                className="inline-flex items-center justify-center rounded-full border border-white/15 bg-slate-950/40 px-4 py-2 text-sm font-semibold text-slate-50 hover:bg-slate-950/70 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={statusPdf === 'loading' || statusLoad !== 'success' || exportRows.length === 0}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {statusPdf === 'loading' ? 'Export PDF…' : 'Exporter PDF'}
               </button>
@@ -732,84 +832,88 @@ export default function PrevisionnelPage() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={statusSave === 'loading'}
-                className="inline-flex items-center justify-center rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-500/40 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={statusSave === 'loading' || statusLoad !== 'success'}
+                className="inline-flex items-center justify-center rounded-xl bg-cyan-800 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {statusSave === 'loading' ? 'Enregistrement…' : 'Enregistrer'}
               </button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-900/50 via-slate-900/40 to-slate-950/80 p-4 shadow-lg shadow-emerald-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-emerald-300">Total recettes</div>
-            <div className="mt-2 text-2xl font-semibold">{formatCurrencyPdf(totalRecettes)}</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Recettes prévues</div>
+            <div className="mt-2 text-2xl font-semibold">{statusLoad === 'success' ? formatCurrencyPdf(totalRecettes) : '—'}</div>
           </div>
 
-          <div className="rounded-2xl border border-rose-500/40 bg-gradient-to-br from-rose-900/50 via-slate-900/40 to-slate-950/80 p-4 shadow-lg shadow-rose-900/40">
-            <div className="text-xs font-medium uppercase tracking-wide text-rose-300">Total dépenses</div>
-            <div className="mt-2 text-2xl font-semibold">{formatCurrencyPdf(totalDepenses)}</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-rose-800">Dépenses prévues</div>
+            <div className="mt-2 text-2xl font-semibold">{statusLoad === 'success' ? formatCurrencyPdf(totalDepenses) : '—'}</div>
           </div>
         </section>
 
-        <section className="mb-6 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-xl shadow-black/40">
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-300">Solde</div>
-              <div className="mt-1 text-2xl font-semibold">{formatCurrencyPdf(solde)}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Résultat prévisionnel</div>
+              <div className="mt-1 text-2xl font-semibold">{statusLoad === 'success' ? formatCurrencyPdf(solde) : '—'}</div>
             </div>
-            <div className="max-w-md text-xs text-slate-300">
-              Export / Save ne prend que les lignes &gt; 0. Les onglets évitent de surcharger le navigateur.
+            <div className="max-w-md text-xs leading-relaxed text-slate-600">
+              Recettes prévues − dépenses prévues, sans lien avec le solde bancaire.
+              Le PDF ne retient que les montants strictement positifs. Les postes remis à zéro
+              restent conservés lorsqu’un mouvement leur est rattaché.
             </div>
           </div>
         </section>
 
         {statusPdf === 'error' && (
-          <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-900/40 px-4 py-3 text-sm text-rose-50">
-            Impossible de générer le PDF. Vérifie que <b>jspdf</b> et <b>jspdf-autotable</b> sont installés.
+          <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            Impossible de générer le PDF. Réessayez avec le bouton « Exporter PDF ».
           </div>
         )}
 
         {error && (
-          <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-900/40 px-4 py-3 text-sm text-rose-50">
+          <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
             {error}
           </div>
         )}
 
         {statusSave === 'success' && (
-          <div className="mb-4 rounded-xl border border-emerald-500/40 bg-emerald-900/40 px-4 py-3 text-sm text-emerald-50">
+          <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Prévisionnel enregistré.
           </div>
         )}
 
         {/* Onglets catégories */}
-        <section className="rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-xl shadow-black/40 backdrop-blur">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-white">Catégories (onglets)</div>
-              <div className="text-xs text-slate-300">
-                Dépenses puis recettes. 1 catégorie visible → pas de crash Chrome.
+              <h2 className="text-lg font-semibold text-slate-950">Postes budgétaires</h2>
+              <div className="text-sm text-slate-600">
+                Une catégorie à la fois. Les montants saisis restent disponibles lorsque vous changez de catégorie.
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <input
+                aria-label="Rechercher une désignation dans la catégorie"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
                   setLimit(BASE_LIMIT);
                 }}
                 placeholder="Filtrer les désignations…"
-                className="w-56 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-xs text-slate-50 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 sm:w-64"
               />
             </div>
           </div>
 
-          <div className="mb-5 overflow-auto">
-            <div className="flex min-w-max flex-wrap gap-2">
+          <div className="mb-5">
+            <div aria-label="Catégories du prévisionnel" className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {categories.map((c) => (
                 <button
                   key={c.id}
                   type="button"
+                  aria-pressed={c.id === activeCatId}
                   className={tabClass(c.id === activeCatId, c.type)}
                   onClick={() => {
                     setActiveCatId(c.id);
@@ -817,6 +921,7 @@ export default function PrevisionnelPage() {
                     setSearch('');
                   }}
                 >
+                  <span className="block text-xs font-normal">{c.type === 'recette' ? 'Recettes' : 'Dépenses'}</span>
                   {c.label}
                 </button>
               ))}
@@ -825,22 +930,22 @@ export default function PrevisionnelPage() {
 
           {/* Panneau catégorie active */}
           {!activeCategory ? (
-            <div className="rounded-xl border border-white/10 bg-slate-950/40 px-4 py-6 text-center text-sm text-slate-300">
-              Aucune catégorie active.
+            <div role="status" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-600">
+              {statusLoad === 'loading' ? 'Chargement des catégories…' : 'Aucune catégorie disponible.'}
             </div>
           ) : (
-            <div className={`rounded-2xl bg-slate-950/50 p-4 ${catBoxClass(activeCategory.type)}`}>
+            <div aria-busy={desigsLoading || statusLoad === 'loading'} className={`rounded-2xl bg-slate-50 p-3 sm:p-4 ${catBoxClass(activeCategory.type)}`}>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-base font-semibold text-white">{activeCategory.label}</h3>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                  <h3 className="text-base font-semibold text-slate-950">{activeCategory.label}</h3>
+                  <p className="text-xs uppercase tracking-wide text-slate-600">
                     {activeCategory.type === 'recette' ? 'Recettes' : 'Dépenses'} • Total :{' '}
-                    <span className="font-semibold text-slate-200">{formatCurrency(totalActiveCategory)}</span>
+                    <span className="font-semibold text-slate-950">{statusLoad === 'success' ? formatCurrency(totalActiveCategory) : '—'}</span>
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {desigsLoading && <span className="text-[11px] text-slate-400">Chargement des désignations…</span>}
+                <div className="flex flex-wrap items-center gap-2">
+                  {desigsLoading && <span role="status" className="text-xs text-slate-600">Chargement des désignations…</span>}
 
                   {/* Bouton "Tout afficher" basé sur la liste fusionnée */}
                   {activeDesigsFiltered.length > 0 && (
@@ -851,8 +956,8 @@ export default function PrevisionnelPage() {
                       className={[
                         'rounded-full border px-3 py-1 text-[11px] font-semibold transition',
                         limit >= activeDesigsFiltered.length
-                          ? 'border-white/10 bg-slate-950/30 text-slate-500 cursor-not-allowed'
-                          : 'border-white/15 bg-slate-950/40 text-slate-200 hover:bg-slate-950/70',
+                          ? 'border-slate-200 bg-white text-slate-500 cursor-not-allowed'
+                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100',
                       ].join(' ')}
                       title={
                         limit >= activeDesigsFiltered.length
@@ -868,7 +973,7 @@ export default function PrevisionnelPage() {
                     <button
                       type="button"
                       onClick={() => setLimit(BASE_LIMIT)}
-                      className="rounded-full border border-white/15 bg-slate-950/40 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-950/70"
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                     >
                       Replier
                     </button>
@@ -876,14 +981,15 @@ export default function PrevisionnelPage() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-white/5 bg-slate-900/80">
-                <div className="overflow-auto">
-                  <table className="min-w-full border-collapse text-xs">
-                    <thead className="bg-slate-900/90 text-[11px] uppercase tracking-wide text-slate-300">
+              <fieldset disabled={statusLoad !== 'success' || statusSave === 'loading'} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white disabled:opacity-60">
+                <legend className="sr-only">Montants de la catégorie {activeCategory.label}</legend>
+                <div>
+                  <table className="forecast-table w-full table-fixed border-collapse text-sm">
+                    <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
                       <tr>
                         <th className="px-3 py-2 text-left">Désignation</th>
-                        <th className="w-40 px-3 py-2 text-right">Montant (€)</th>
-                        <th className="w-20 px-3 py-2 text-center">Actions</th>
+                        <th className="w-32 px-3 py-2 text-right sm:w-40">Montant (€)</th>
+                        <th className="w-24 px-3 py-2 text-center">Actions</th>
                       </tr>
                     </thead>
 
@@ -897,12 +1003,12 @@ export default function PrevisionnelPage() {
                         const isOrphan = String(d.id || '').startsWith('orphan-');
 
                         return (
-                          <tr key={`preset-${d.id}`} className="border-t border-white/5">
-                            <td className="px-3 py-2 text-slate-100">
+                          <tr key={`preset-${d.id}`} className="border-t border-slate-200">
+                            <td className="px-3 py-2 text-slate-800">
                               <div className="flex items-center gap-2">
                                 <span>{d.label}</span>
                                 {isOrphan && (
-                                  <span className="rounded-full border border-amber-500/30 bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
                                     Hors référentiel
                                   </span>
                                 )}
@@ -912,7 +1018,8 @@ export default function PrevisionnelPage() {
                               <input
                                 type="number"
                                 step="1"
-                                className="w-full rounded-lg border border-white/15 bg-slate-950/80 px-2 py-1 text-right text-xs text-slate-50 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                                aria-label={`Montant prévu en euros : ${d.label}`}
+                                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-right text-sm text-slate-950"
                                 value={v ? String(v) : ''}
                                 onChange={(e) => setPresetAmount(activeCategory.label, d.label, e.target.value)}
                                 placeholder="0"
@@ -927,11 +1034,12 @@ export default function PrevisionnelPage() {
 
                       {/* Lignes custom (toujours visibles dans l’onglet) */}
                       {activeCustom.map((l) => (
-                        <tr key={l.uid} className="border-t border-white/5">
-                          <td className="px-3 py-2 text-slate-100">
+                        <tr key={l.uid} className="border-t border-slate-200">
+                          <td className="px-3 py-2 text-slate-800">
                             <input
                               type="text"
-                              className="w-full rounded-lg border border-white/15 bg-slate-950/80 px-2 py-1 text-xs text-slate-50 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                              aria-label="Désignation de la ligne libre"
+                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950"
                               value={l.designation}
                               onChange={(e) => updateCustomLine(l.uid, { designation: e.target.value })}
                               placeholder="Intitulé"
@@ -941,7 +1049,8 @@ export default function PrevisionnelPage() {
                             <input
                               type="number"
                               step="1"
-                              className="w-full rounded-lg border border-white/15 bg-slate-950/80 px-2 py-1 text-right text-xs text-slate-50 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500"
+                              aria-label={`Montant prévu en euros : ${l.designation}`}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-right text-sm text-slate-950"
                               value={l.montant_prevu ? String(l.montant_prevu) : ''}
                               onChange={(e) => {
                                 const numeric = Number((e.target.value || '').replace(',', '.'));
@@ -954,40 +1063,42 @@ export default function PrevisionnelPage() {
                             <button
                               type="button"
                               onClick={() => deleteCustomLine(l.uid)}
-                              className="inline-flex items-center rounded-full border border-rose-500/70 px-2 py-0.5 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/10"
+                              aria-label={`Retirer la ligne ${l.designation}`}
+                              className="inline-flex items-center rounded-xl border border-rose-300 px-2 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-50"
                             >
-                              Suppr
+                              Retirer
                             </button>
                           </td>
                         </tr>
                       ))}
 
                       {activeDesigsVisible.length === 0 && activeCustom.length === 0 && !desigsLoading && (
-                        <tr className="border-t border-white/5">
-                          <td colSpan={3} className="px-3 py-6 text-center text-xs text-slate-400">
-                            Aucune désignation (référentiel) chargée / trouvée. Tu peux ajouter une ligne custom.
+                        <tr className="border-t border-slate-200">
+                          <td colSpan={3} className="px-3 py-6 text-center text-sm text-slate-600">
+                            Aucune désignation trouvée. Modifiez la recherche ou ajoutez une ligne libre.
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </fieldset>
 
               {/* Ajout custom */}
               <div className="mt-3 flex justify-end">
                 <button
                   type="button"
                   onClick={() => addCustomLine(activeCategory)}
-                  className="inline-flex items-center gap-1 rounded-full border border-sky-500/70 px-3 py-1 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/10"
+                  disabled={statusLoad !== 'success' || statusSave === 'loading'}
+                  className="inline-flex items-center gap-2 rounded-xl border border-cyan-300 bg-white px-3 py-2 text-sm font-semibold text-cyan-900 hover:bg-cyan-50 disabled:opacity-60"
                 >
                   <span className="text-sm">+</span>
                   <span>Ajouter une ligne</span>
                 </button>
               </div>
 
-              <div className="mt-2 text-[11px] text-slate-400">
-                Astuce : utilise la recherche + “Tout afficher” si la catégorie a beaucoup de postes.
+              <div className="mt-2 text-xs text-slate-600">
+                Les lignes libres restent visibles dans leur catégorie. « Tout afficher » révèle les autres désignations.
               </div>
             </div>
           )}
