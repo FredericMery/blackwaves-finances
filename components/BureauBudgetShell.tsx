@@ -38,8 +38,7 @@ export default function BureauBudgetShell({ children }: { children: React.ReactN
                 Pilotage budget & trésorerie
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-600 sm:text-[15px]">
-                Un environnement sobre, pro et centré sur le budget du club, avec
-                les synthèses, le prévisionnel et le suivi détaillé des lignes.
+                Un environnement sobre,
               </p>
             </div>
 
