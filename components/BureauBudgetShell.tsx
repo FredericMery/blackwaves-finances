@@ -37,9 +37,14 @@ export default function BureauBudgetShell({ children }: { children: React.ReactN
                 <span className="block text-xs text-slate-500">Le budget du club, simplement.</span>
               </span>
             </Link>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-              Espace bureau
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                Espace bureau
+              </span>
+              <Link href="/bureau/budget?view=new" className="inline-flex min-h-11 items-center rounded-xl bg-cyan-800 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-900">
+                + Saisir un mouvement
+              </Link>
+            </div>
           </div>
 
           <nav aria-label="Navigation financière" className="mt-4 grid grid-cols-2 gap-1 pb-3 sm:grid-cols-3 lg:flex lg:flex-wrap">

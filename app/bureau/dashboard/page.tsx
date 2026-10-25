@@ -331,7 +331,7 @@ export default function BureauClubDashboardPage() {
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden="true"><div className="h-full bg-cyan-600" style={{ width: `${Math.max(0, Math.min(100, c.pourcentage))}%` }} /></div>
           </div>)}{aggregParCategorie.length === 0 && <p className="text-sm text-slate-500">Aucune dépense sur cette période.</p>}</div>
         </details>
-        <p className="text-xs text-slate-500">Sources : budget_lignes et budget_previsionnel (budget historique du club). Les données Asso 2 ne sont pas mélangées.</p>
+        <p className="text-xs text-slate-500">Périmètre : mouvements et prévisions du suivi budgétaire. Le module Budget &amp; factures reste indépendant.</p>
       </>}
     </div>
   );

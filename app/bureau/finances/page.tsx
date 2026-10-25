@@ -204,7 +204,7 @@ export default function FinancesDashboardPage() {
           saison.
         </p>
         <p className="mt-3 text-sm text-slate-600">
-          Périmètre : toutes les saisons et toutes les catégories de budget_lignes,
+          Périmètre : toutes les saisons et toutes les catégories du suivi des mouvements,
           réalisé uniquement. Résultat = recettes − dépenses ; ce n&apos;est pas le
           solde bancaire. Les saisons absentes sont déduites de la date (septembre
           à août), ou classées « Saison inconnue ».

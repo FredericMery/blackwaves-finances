@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useMemo, useState, FormEvent, useRef, useId } from 'react';
+import { useSearchParams } from 'next/navigation';
+import React, { Suspense, useEffect, useMemo, useState, FormEvent, useRef, useId } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -180,7 +181,9 @@ function Modal({
   );
 }
 
-export default function BudgetPage() {
+function BudgetContent() {
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
   const [retryCount, setRetryCount] = useState(0);
   const [statusPrev, setStatusPrev] = useState<Status>('loading');
   const [statusRefs, setStatusRefs] = useState<Status>('loading');
@@ -331,22 +334,22 @@ export default function BudgetPage() {
   // Listes pour filtres
   const saisonsDisponibles = useMemo(() => {
     const set = new Set<string>();
-    lignes.forEach((l) => l.saison && set.add(l.saison));
+    lignes.forEach((l) => set.add(l.saison || 'Non définie'));
     return Array.from(set).sort().reverse();
   }, [lignes]);
 
   const categoriesDisponibles = useMemo(() => {
     const set = new Set<string>();
-    lignes.forEach((l) => l.categorie && set.add(l.categorie));
+    lignes.forEach((l) => set.add(l.categorie || 'Non renseignée'));
     return Array.from(set).sort();
   }, [lignes]);
 
   // Lignes filtrées pour l'affichage
   const lignesFiltrees = useMemo(() => {
     return lignes.filter((l) => {
-      if (filterSeason !== 'toutes' && l.saison !== filterSeason) return false;
+      if (filterSeason !== 'toutes' && (l.saison || 'Non définie') !== filterSeason) return false;
       if (filterType !== 'tous' && l.type !== filterType) return false;
-      if (filterCategory !== 'toutes' && l.categorie !== filterCategory) return false;
+      if (filterCategory !== 'toutes' && (l.categorie || 'Non renseignée') !== filterCategory) return false;
 
       if (onlyMissingInvoices && !!l.facture_url) return false;
 
@@ -815,18 +818,32 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
       if (typeof saved.saisieCategory === 'string') setSaisieCategory(saved.saisieCategory);
       if (saved.scroll && typeof saved.scroll.page === 'number') pendingScroll.current = saved.scroll;
     } catch { /* Storage may be unavailable or stale; keep usable defaults. */ }
-    const applyParams = () => {
+    setUiReady(true);
+  }, []);
+  useEffect(() => {
       const params = new URLSearchParams(window.location.search);
       const view = params.get('view');
+      const isDrilldown = ['season', 'category', 'type', 'missing', 'line'].some((key) => params.has(key));
+      if (isDrilldown) {
+        setActiveTab(view === 'new' ? 'new' : 'moves');
+        setFilterSeason('toutes');
+        setFilterType('tous');
+        setFilterCategory('toutes');
+        setSearch('');
+        setOnlyMissingInvoices(false);
+        setSaisieSearch('');
+        setSaisieCategory('toutes');
+      }
       if (view === 'new' || view === 'moves') setActiveTab(view);
       if (params.has('season')) {
-        const season = params.get('season') || 'toutes';
+        const season = !params.get('season') || params.get('season') === 'all' ? 'toutes' : params.get('season')!;
         setFilterSeason(season);
         if (season !== 'toutes') { setSaisieSeason(season); setSaison(season); }
       }
       if (params.has('category')) {
-        setFilterCategory(params.get('category') || 'toutes');
-        setSaisieCategory(params.get('category') || 'toutes');
+        const category = !params.get('category') || params.get('category') === 'all' ? 'toutes' : params.get('category')!;
+        setFilterCategory(category);
+        setSaisieCategory(category);
       }
       if (params.has('type')) {
         const kind = params.get('type');
@@ -836,13 +853,8 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
       if (params.has('missing')) setOnlyMissingInvoices(params.get('missing') === '1');
       pendingLine.current = params.get('line');
       if (pendingLine.current) setActiveTab('moves');
-      if (params.size) pendingScroll.current = null;
-      setUiReady(true);
-    };
-    applyParams();
-    window.addEventListener('popstate', applyParams);
-    return () => window.removeEventListener('popstate', applyParams);
-  }, []);
+      if (isDrilldown) pendingScroll.current = null;
+  }, [query]);
 
   useEffect(() => {
     if (!uiReady) return;
@@ -890,7 +902,7 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
       pendingScroll.current = null;
     });
     return () => cancelAnimationFrame(frame);
-  }, [uiReady, statusLoad, statusPrev, lignes, activeTab]);
+  }, [uiReady, statusLoad, statusPrev, lignes, activeTab, query]);
 
   const openMovement = (line: BudgetLigne) => {
     setSelectedLigneId(line.id);
@@ -2001,5 +2013,13 @@ const handleDeleteLigne = async (ligne: BudgetLigne) => {
         )}
       </div>
     </div>
+  );
+}
+
+export default function BudgetPage() {
+  return (
+    <Suspense fallback={<p role="status" className="p-6 text-slate-700">Chargement du budget…</p>}>
+      <BudgetContent />
+    </Suspense>
   );
 }
