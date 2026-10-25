@@ -3,9 +3,9 @@ import type { Metadata, Viewport } from "next";
 import SiteFrame from "@/components/SiteFrame";
 
 export const metadata: Metadata = {
-  title: "Black Waves Cheerleading",
+  title: "BlackWaves Finances",
   description:
-    "Site officiel du club Black Waves Cheerleading : équipes, compétitions, informations parents et gestion du club.",
+    "Budget du club BlackWaves : prévisionnel, opérations, factures et suivi financier.",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [{ url: "/blackwaves-logo.png", sizes: "558x560", type: "image/png" }],

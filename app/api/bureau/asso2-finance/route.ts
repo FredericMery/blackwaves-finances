@@ -93,6 +93,9 @@ export async function GET(request: Request) {
     const sb = supabaseAdmin();
     const url = new URL(request.url);
     const requestedSeasonCode = url.searchParams.get("season")?.trim();
+    // Omitting signing preserves the existing response for other consumers.
+    const signing = url.searchParams.get("signing");
+    const detailLineId = url.searchParams.get("lineId");
 
     const seasonsRes = await sb
       .from("asso2_finance_seasons")
@@ -146,6 +149,7 @@ export async function GET(request: Request) {
 
     const linesWithTotals = await Promise.all(
       ((linesRes.data || []) as LineRow[]).map(async (line) => {
+        const signAttachments = signing !== "none" && (signing !== "detail" || line.id === detailLineId);
         const payments = (line.payments || []).sort((a, b) =>
           a.created_at.localeCompare(b.created_at)
         );
@@ -156,7 +160,7 @@ export async function GET(request: Request) {
         const paymentsWithSignedUrls = await Promise.all(
           payments.map(async (payment) => {
             let invoiceUrl: string | null = null;
-            if (payment.invoice_path) {
+            if (signAttachments && payment.invoice_path) {
               const signed = await sb.storage
                 .from(INVOICE_BUCKET)
                 .createSignedUrl(payment.invoice_path, 60 * 30);
@@ -164,11 +168,12 @@ export async function GET(request: Request) {
                 invoiceUrl = signed.data.signedUrl;
               }
             }
-            if (!invoiceUrl && payment.invoice_public_url) {
+            if (signAttachments && !invoiceUrl && payment.invoice_public_url) {
               invoiceUrl = payment.invoice_public_url;
             }
             return {
               ...payment,
+              has_invoice: Boolean(payment.invoice_path || payment.invoice_public_url),
               invoice_url: invoiceUrl,
             };
           })
@@ -177,7 +182,7 @@ export async function GET(request: Request) {
         const documentsWithUrls = await Promise.all(
           documents.map(async (document) => {
             let fileUrl: string | null = null;
-            if (document.file_path) {
+            if (signAttachments && document.file_path) {
               const signed = await sb.storage
                 .from(INVOICE_BUCKET)
                 .createSignedUrl(document.file_path, 60 * 30);
@@ -185,11 +190,12 @@ export async function GET(request: Request) {
                 fileUrl = signed.data.signedUrl;
               }
             }
-            if (!fileUrl && document.public_url) {
+            if (signAttachments && !fileUrl && document.public_url) {
               fileUrl = document.public_url;
             }
             return {
               ...document,
+              has_file: Boolean(document.file_path || document.public_url),
               file_url: fileUrl,
             };
           })
