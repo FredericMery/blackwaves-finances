@@ -11,7 +11,6 @@ const budgetMenu = [
   { href: "/bureau/previsionnel", label: "Prévisionnel" },
   { href: "/bureau/comparatif-budget", label: "Comparatif" },
   { href: "/bureau/finances", label: "Finances" },
-  { href: "/bureau/comptes-athletes", label: "Comptes athlètes" },
 ];
 
 export default function BureauBudgetShell({ children }: { children: React.ReactNode }) {
